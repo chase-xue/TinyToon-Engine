@@ -1,0 +1,32 @@
+# Virtual Environment
+.venv/
+venv/
+ENV/
+env/
+
+# OS Metadata
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# IDE & Editor files
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Logs & Temporary Files
+*.log
+node_modules/
+npm-debug.log*
+
+# Sensitive credentials
+*.env
+*.env.*
+*.pem
+*.key
+credentials.json
