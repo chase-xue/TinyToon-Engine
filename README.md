@@ -3,6 +3,13 @@
 > **正统华纳动画手绘级 2D 横版平台动作游戏引擎**  
 > 1:1 像素级复刻经典动画神韵 • 四英雄神技即时切换 • 手机王者荣耀式触控系统 • HTML5 Gamepad 原生手柄即插即用
 
+[![GitHub Pages](https://img.shields.io/badge/Online%20Play-GitHub%20Pages-2ea44f?style=for-the-badge&logo=github)](https://chase-xue.github.io/TinyToon-Engine/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=for-the-badge)](LICENSE)
+
+### 🌐 手机 / 电脑即刻在线试玩：
+👉 **[https://chase-xue.github.io/TinyToon-Engine/](https://chase-xue.github.io/TinyToon-Engine/)**  
+*(手机浏览器扫码或点击上方链接，横屏即刻畅玩！)*
+
 ---
 
 ## ✨ 核心特性
