@@ -767,6 +767,10 @@
                 width: 16px;
                 height: 16px;
             }
+            #hud-shield-badge {
+                font-size: 10px !important;
+                padding: 1px 5px !important;
+            }
             #touch-hero-bar {
                 top: max(8px, env(safe-area-inset-top));
                 right: max(12px, env(safe-area-inset-right));
@@ -872,11 +876,16 @@
             </div>
             <div class="hud-row">
                 <span class="hud-label">LIFE:</span>
+                <span class="hud-val" id="hud-lives" style="color:#fde047; font-weight:900;">🐰 × 3</span>
+            </div>
+            <div class="hud-row" style="align-items:center;">
+                <span class="hud-label">HP:</span>
                 <div class="hud-hearts" id="hud-hearts-box">
                     <div class="hud-heart"></div>
                     <div class="hud-heart"></div>
                     <div class="hud-heart"></div>
                 </div>
+                <div id="hud-shield-badge" style="display:none; font-size:11px; background:linear-gradient(135deg, #10b981, #059669); color:#fff; padding:2px 7px; border-radius:10px; font-weight:bold; box-shadow:0 0 10px rgba(16,185,129,0.8); margin-left:6px; border:1px solid #6ee7b7; letter-spacing:0.5px;">🛡️ 替身护盾</div>
             </div>
             <div class="hud-row">
                 <span class="hud-label">CARROTS:</span>
@@ -1318,6 +1327,20 @@ class SoundEngine {
         gain.gain.linearRampToValueAtTime(0.01, now + 0.16);
         osc.connect(gain); gain.connect(this.ctx.destination);
         osc.start(now); osc.stop(now + 0.16);
+    }
+    playBell() {
+        if (!this.ctx) return;
+        const now = this.ctx.currentTime;
+        [880, 1175, 1760].forEach((f, idx) => {
+            const osc = this.ctx.createOscillator();
+            const gain = this.ctx.createGain();
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(f, now + idx * 0.04);
+            gain.gain.setValueAtTime(0.25, now + idx * 0.04);
+            gain.gain.exponentialRampToValueAtTime(0.001, now + idx * 0.04 + 0.45);
+            osc.connect(gain); gain.connect(this.ctx.destination);
+            osc.start(now + idx * 0.04); osc.stop(now + idx * 0.04 + 0.45);
+        });
     }
     toggleBGM() {
         this.init();
@@ -1873,6 +1896,8 @@ function switchChar(id) {
     const skillNames = ['贴地滑铲', '扑腾滑翔', '暴风龙卷', '飞檐走壁'];
     if (touchSkillIcon) touchSkillIcon.innerText = skillIcons[id];
     if (touchSkillText) touchSkillText.innerText = skillNames[id];
+
+    if (typeof updateLivesHUD === 'function') updateLivesHUD();
 }
 
 document.getElementById('btn-buster').onclick = () => switchChar(CHARACTERS.BUSTER);
@@ -2144,8 +2169,8 @@ if (btnToggleTouch && mobileOverlay) {
     };
 }
 
-// 关卡系统与多主题地图构建（共 4 大经典关卡：原野 -> 水晶矿坑 -> 彩虹天际 -> 决战太空战舰）
-const MAP_COLS = 80;
+// 关卡系统与多主题地图构建（共 4 大媲美超级马里奥的大纵深超长关卡：原野 -> 水晶矿坑 -> 彩虹天际 -> 决战太空战舰）
+const MAP_COLS = 240; // 9600px 媲美超级马里奥的大纵深超长关卡
 const MAP_ROWS = 14;
 const tileMap = new Array(MAP_ROWS * MAP_COLS).fill(0);
 
@@ -2156,11 +2181,76 @@ let alertTimer = 0;
 let deathCountdownTimer = null;
 let deathCountdownSeconds = 3;
 
+function showAlertBanner(msg, duration = 3000) {
+    const b = document.getElementById('banner-alert');
+    if (!b) return;
+    b.innerText = msg;
+    b.style.display = 'block';
+    if (b.hideTimer) clearTimeout(b.hideTimer);
+    b.hideTimer = setTimeout(() => {
+        b.style.display = 'none';
+        b.hideTimer = null;
+    }, duration);
+}
+
+// 关卡地形构建通用辅助函数
+function fillGround(startCol, endCol, groundRow = 11, bottomRow = 13, topTile = 1, subTile = 2) {
+    for (let c = startCol; c <= endCol; c++) {
+        if (c < 0 || c >= MAP_COLS) continue;
+        for (let r = groundRow; r <= bottomRow; r++) {
+            if (r < 0 || r >= MAP_ROWS) continue;
+            tileMap[r * MAP_COLS + c] = (r === groundRow) ? topTile : subTile;
+        }
+    }
+}
+
+function fillPlatform(startCol, endCol, row, tileType = 3) {
+    for (let c = startCol; c <= endCol; c++) {
+        if (c < 0 || c >= MAP_COLS || row < 0 || row >= MAP_ROWS) continue;
+        tileMap[row * MAP_COLS + c] = tileType;
+    }
+}
+
+function fillPillar(col, startRow, endRow, tileType = 5) {
+    if (col < 0 || col >= MAP_COLS) return;
+    for (let r = startRow; r <= endRow; r++) {
+        if (r < 0 || r >= MAP_ROWS) continue;
+        tileMap[r * MAP_COLS + col] = tileType;
+    }
+}
+
+function fillStairs(startCol, startRow, steps, dir = 1, tileType = 4) {
+    for (let s = 0; s < steps; s++) {
+        const col = startCol + s * dir;
+        const row = startRow - s;
+        if (col < 0 || col >= MAP_COLS) continue;
+        for (let r = row; r < MAP_ROWS; r++) {
+            tileMap[r * MAP_COLS + col] = tileType;
+        }
+    }
+}
+
+function addCarrotRow(startCol, endCol, row, spacing = 1) {
+    for (let c = startCol; c <= endCol; c += spacing) {
+        entities.push({ type: 'carrot', x: c * TILE_SIZE + 8, y: row * TILE_SIZE + 4, collected: false });
+    }
+}
+
+function addCarrotArc(centerCol, topRow, radiusCols = 3) {
+    for (let i = -radiusCols; i <= radiusCols; i++) {
+        const c = centerCol + i;
+        const rOffset = Math.round((i * i) / (radiusCols + 1));
+        const r = topRow + rOffset;
+        entities.push({ type: 'carrot', x: c * TILE_SIZE + 8, y: r * TILE_SIZE + 4, collected: false });
+    }
+}
+
 // 关底 BOSS (第 4 关激活：DUCK VADER 达克·维德)
 const boss = {
     active: false,
-    x: 2600,
+    x: 8400,
     y: 200,
+    arenaBaseX: 8200,
     w: 64,
     h: 80,
     vx: -1.5,
@@ -2174,242 +2264,392 @@ const boss = {
     bullets: []
 };
 
-// 1. STAGE 1: 🐰 阳光原野与绿茵丘陵 (Acme Acres)
+// 1. STAGE 1: 🐰 阳光原野与绿茵丘陵 (Acme Acres) - 240 列马里奥超长大关
 function buildStage1() {
     tileMap.fill(0);
-    // 基础草地与泥土 (row 11 为草坪，row 12-13 为泥层)
-    for (let c = 0; c < MAP_COLS; c++) {
-        for (let r = 11; r < 14; r++) {
-            if (c >= 32 && c <= 37) continue; // 深渊峡谷
-            tileMap[r * MAP_COLS + c] = (r === 11) ? 1 : 2;
-        }
-    }
-    // 木拱桥 (cols 12-18, row 9 拱梁，row 10 留空滑铲)
+    entities = [];
+
+    // [区域 1: 阳光平原与跳跃初试 (cols 0-50)]
+    fillGround(0, 32);
+    // 木拱桥 (cols 12-18)
     tileMap[10 * MAP_COLS + 12] = 3;
-    for (let c = 13; c <= 17; c++) tileMap[9 * MAP_COLS + c] = 3;
+    fillPlatform(13, 17, 9, 3);
     tileMap[10 * MAP_COLS + 18] = 3;
+    // 问号宝箱与砖块
+    tileMap[7 * MAP_COLS + 15] = 7; // ? block
+    tileMap[7 * MAP_COLS + 14] = 4;
+    tileMap[7 * MAP_COLS + 16] = 4;
+    // 丘陵阶梯
+    fillStairs(22, 10, 3, 1, 4);
+    fillStairs(26, 8, 3, -1, 4);
+    // 深渊 1 (cols 33-38) 与跨渊木桩
+    fillPlatform(34, 35, 9, 3);
+    fillPlatform(37, 37, 10, 3);
 
-    // 阶梯岩石丘陵 (cols 21-25)
-    tileMap[10 * MAP_COLS + 21] = 4;
-    tileMap[10 * MAP_COLS + 22] = 4; tileMap[9 * MAP_COLS + 22] = 4;
-    tileMap[8 * MAP_COLS + 23] = 4; tileMap[9 * MAP_COLS + 23] = 4;
-    tileMap[10 * MAP_COLS + 24] = 4; tileMap[9 * MAP_COLS + 24] = 4;
-    tileMap[10 * MAP_COLS + 25] = 4;
+    // [区域 2: 连环深渊与第一中途站 (cols 39-95)]
+    fillGround(39, 78);
+    tileMap[7 * MAP_COLS + 45] = 7;
+    tileMap[7 * MAP_COLS + 47] = 7;
+    tileMap[7 * MAP_COLS + 49] = 7;
+    // 福宝攀爬木柱
+    fillPillar(58, 4, 10, 5);
+    fillPlatform(56, 61, 4, 3);
+    // 贴地滑铲低矮石梁 (cols 65-70)
+    fillPlatform(65, 70, 9, 4);
+    // 中途存档点 1 (col 75)
+    entities.push({ type: 'checkpoint', id: 1, x: 75 * TILE_SIZE, y: 380, reached: false });
+    // 巨型深渊 2 (cols 79-85) 与移动浮台
+    entities.push({ type: 'platform', x: 79 * TILE_SIZE, y: 380, w: 80, h: 16, vx: 1.2, minX: 79 * TILE_SIZE, maxX: 84 * TILE_SIZE, originY: 380 });
 
-    // 峡谷木栈桥与水面木筏 (cols 32-38)
-    tileMap[10 * MAP_COLS + 32] = 3; tileMap[10 * MAP_COLS + 33] = 3; tileMap[10 * MAP_COLS + 34] = 3;
-    tileMap[10 * MAP_COLS + 36] = 3; tileMap[10 * MAP_COLS + 37] = 3;
-    tileMap[12 * MAP_COLS + 34] = 3; tileMap[12 * MAP_COLS + 35] = 3;
-    tileMap[11 * MAP_COLS + 38] = 5; tileMap[10 * MAP_COLS + 38] = 5;
+    // [区域 3: 高空栈道与秘密滑铲地道 (cols 86-145)]
+    fillGround(86, 118);
+    // 高空双层栈道
+    fillPlatform(90, 102, 7, 3);
+    tileMap[4 * MAP_COLS + 96] = 7; // 高空问号
+    // 地面阻挡大石 (迪兹旋风粉碎)
+    tileMap[10 * MAP_COLS + 106] = 4;
+    tileMap[9 * MAP_COLS + 106] = 4;
+    tileMap[8 * MAP_COLS + 106] = 4;
+    // 阶梯金字塔
+    fillStairs(110, 10, 4, 1, 4);
+    // 深渊 3 (cols 119-126)
+    fillPlatform(121, 122, 9, 3);
+    fillPlatform(124, 125, 8, 3);
 
-    // 福宝攀爬木柱 (col 48, row 4-10)
-    for (let r = 4; r <= 10; r++) tileMap[r * MAP_COLS + 48] = 5;
-    tileMap[4 * MAP_COLS + 47] = 3; tileMap[4 * MAP_COLS + 48] = 3;
-    tileMap[4 * MAP_COLS + 49] = 3; tileMap[4 * MAP_COLS + 50] = 3;
+    // [区域 4: 森林古木与第二中途站 (cols 127-190)]
+    fillGround(127, 158);
+    // 中途存档点 2 (col 155)
+    entities.push({ type: 'checkpoint', id: 2, x: 155 * TILE_SIZE, y: 380, reached: false });
+    // 树木立柱丛林 (福宝利爪攀爬)
+    fillPillar(135, 4, 10, 5);
+    fillPillar(142, 3, 10, 5);
+    fillPlatform(134, 144, 3, 3);
+    tileMap[2 * MAP_COLS + 139] = 7; // 树顶隐秘宝箱
+    // 裂谷深渊 4 (cols 159-166) 与移动浮台
+    entities.push({ type: 'platform', x: 159 * TILE_SIZE, y: 360, w: 80, h: 16, vx: -1.3, minX: 159 * TILE_SIZE, maxX: 165 * TILE_SIZE, originY: 360 });
 
-    // 阶梯石拱 (cols 53-56)
-    tileMap[10 * MAP_COLS + 53] = 4;
-    tileMap[9 * MAP_COLS + 54] = 4; tileMap[10 * MAP_COLS + 54] = 4;
-    tileMap[8 * MAP_COLS + 55] = 4; tileMap[9 * MAP_COLS + 55] = 4;
-    tileMap[9 * MAP_COLS + 56] = 4; tileMap[10 * MAP_COLS + 56] = 4;
+    // [区域 5: 冲刺长廊与 Acme 胜利大钟 (cols 167-238)]
+    fillGround(167, 185);
+    fillPillar(175, 4, 10, 5);
+    // 深渊 5 (cols 186-191)
+    fillPlatform(188, 189, 9, 3);
+    fillGround(192, 238);
+    // 终点前巨型马里奥式胜利大台阶
+    fillStairs(200, 10, 6, 1, 4);
+    fillPlatform(206, 210, 5, 4);
+    // 关底金色 Acme 胜利大钟 (col 212)
+    entities.push({ type: 'goal', x: 212 * TILE_SIZE, y: 280, w: 48, h: 160, reached: false });
 
-    entities = [
-        { type: 'balloon', x: 380, y: 240, vy: 0.35, originY: 240, content: 'star' },
-        { type: 'balloon', x: 1080, y: 220, vy: 0.35, originY: 220, content: 'heart' },
-        { type: 'balloon', x: 1940, y: 120, vy: 0.35, originY: 120, content: 'heart' },
-        { type: 'balloon', x: 2350, y: 220, vy: 0.35, originY: 220, content: 'star' },
+    // 道具气球
+    entities.push(
+        { type: 'balloon', x: 15 * TILE_SIZE, y: 200, vy: 0.35, originY: 200, content: 'star' },
+        { type: 'balloon', x: 48 * TILE_SIZE, y: 180, vy: 0.35, originY: 180, content: 'heart' },
+        { type: 'balloon', x: 96 * TILE_SIZE, y: 100, vy: 0.35, originY: 100, content: 'star' },
+        { type: 'balloon', x: 139 * TILE_SIZE, y: 60, vy: 0.35, originY: 60, content: 'heart' },
+        { type: 'balloon', x: 175 * TILE_SIZE, y: 120, vy: 0.35, originY: 120, content: 'star' },
+        { type: 'balloon', x: 204 * TILE_SIZE, y: 140, vy: 0.35, originY: 140, content: 'heart' }
+    );
 
-        { type: 'enemy', enemyType: 'rat', x: 360, y: 404, vx: -1.0, w: 38, h: 36, minX: 260, maxX: 460, alive: true, anim: 0 },
-        { type: 'enemy', enemyType: 'rat', x: 740, y: 404, vx: 1.1, w: 38, h: 36, minX: 680, maxX: 820, alive: true, anim: 0 },
-        { type: 'enemy', enemyType: 'bull', x: 1100, y: 398, vx: -0.9, w: 44, h: 42, minX: 1020, maxX: 1220, alive: true, anim: 0 },
-        { type: 'enemy', enemyType: 'bee', x: 1400, y: 270, vx: 1.0, originY: 270, w: 34, h: 34, minX: 1300, maxX: 1520, alive: true, anim: 0 },
-        { type: 'enemy', enemyType: 'rat', x: 1680, y: 404, vx: -1.0, w: 38, h: 36, minX: 1580, maxX: 1800, alive: true, anim: 0 },
-        { type: 'enemy', enemyType: 'bull', x: 2060, y: 398, vx: 0.9, w: 44, h: 42, minX: 1960, maxX: 2160, alive: true, anim: 0 },
-        { type: 'enemy', enemyType: 'bee', x: 2380, y: 290, vx: -1.0, originY: 290, w: 34, h: 34, minX: 2260, maxX: 2480, alive: true, anim: 0 },
-        { type: 'enemy', enemyType: 'bull', x: 2620, y: 398, vx: 1.0, w: 44, h: 42, minX: 2520, maxX: 2720, alive: true, anim: 0 },
+    // 敌人巡逻队
+    entities.push(
+        { type: 'enemy', enemyType: 'rat', x: 10 * TILE_SIZE, y: 404, vx: -1.0, w: 38, h: 36, minX: 8 * TILE_SIZE, maxX: 12 * TILE_SIZE, alive: true, anim: 0 },
+        { type: 'enemy', enemyType: 'rat', x: 28 * TILE_SIZE, y: 404, vx: 1.1, w: 38, h: 36, minX: 25 * TILE_SIZE, maxX: 31 * TILE_SIZE, alive: true, anim: 0 },
+        { type: 'enemy', enemyType: 'bull', x: 44 * TILE_SIZE, y: 398, vx: -0.9, w: 44, h: 42, minX: 41 * TILE_SIZE, maxX: 49 * TILE_SIZE, alive: true, anim: 0 },
+        { type: 'enemy', enemyType: 'bee', x: 55 * TILE_SIZE, y: 240, vx: 1.0, originY: 240, w: 34, h: 34, minX: 52 * TILE_SIZE, maxX: 62 * TILE_SIZE, alive: true, anim: 0 },
+        { type: 'enemy', enemyType: 'rat', x: 70 * TILE_SIZE, y: 404, vx: -1.1, w: 38, h: 36, minX: 66 * TILE_SIZE, maxX: 74 * TILE_SIZE, alive: true, anim: 0 },
+        { type: 'enemy', enemyType: 'bull', x: 94 * TILE_SIZE, y: 398, vx: 1.0, w: 44, h: 42, minX: 89 * TILE_SIZE, maxX: 100 * TILE_SIZE, alive: true, anim: 0 },
+        { type: 'enemy', enemyType: 'bee', x: 115 * TILE_SIZE, y: 220, vx: -1.2, originY: 220, w: 34, h: 34, minX: 110 * TILE_SIZE, maxX: 122 * TILE_SIZE, alive: true, anim: 0 },
+        { type: 'enemy', enemyType: 'rat', x: 133 * TILE_SIZE, y: 404, vx: 1.0, w: 38, h: 36, minX: 129 * TILE_SIZE, maxX: 138 * TILE_SIZE, alive: true, anim: 0 },
+        { type: 'enemy', enemyType: 'bull', x: 150 * TILE_SIZE, y: 398, vx: -1.0, w: 44, h: 42, minX: 145 * TILE_SIZE, maxX: 154 * TILE_SIZE, alive: true, anim: 0 },
+        { type: 'enemy', enemyType: 'bee', x: 172 * TILE_SIZE, y: 200, vx: 1.1, originY: 200, w: 34, h: 34, minX: 168 * TILE_SIZE, maxX: 180 * TILE_SIZE, alive: true, anim: 0 },
+        { type: 'enemy', enemyType: 'rat', x: 196 * TILE_SIZE, y: 404, vx: -1.1, w: 38, h: 36, minX: 193 * TILE_SIZE, maxX: 200 * TILE_SIZE, alive: true, anim: 0 },
+        { type: 'enemy', enemyType: 'bull', x: 218 * TILE_SIZE, y: 398, vx: 1.0, w: 44, h: 42, minX: 214 * TILE_SIZE, maxX: 228 * TILE_SIZE, alive: true, anim: 0 }
+    );
 
-        // 33 根金灿胡萝卜
-        { type: 'carrot', x: 220, y: 370, collected: false }, { type: 'carrot', x: 250, y: 330, collected: false }, { type: 'carrot', x: 280, y: 370, collected: false },
-        { type: 'carrot', x: 540, y: 408, collected: false }, { type: 'carrot', x: 580, y: 408, collected: false }, { type: 'carrot', x: 620, y: 408, collected: false },
-        { type: 'carrot', x: 840, y: 360, collected: false }, { type: 'carrot', x: 880, y: 310, collected: false }, { type: 'carrot', x: 920, y: 260, collected: false },
-        { type: 'carrot', x: 920, y: 408, collected: false }, { type: 'carrot', x: 960, y: 408, collected: false }, { type: 'carrot', x: 1000, y: 310, collected: false }, { type: 'carrot', x: 1040, y: 360, collected: false },
-        { type: 'carrot', x: 1320, y: 360, collected: false }, { type: 'carrot', x: 1380, y: 320, collected: false }, { type: 'carrot', x: 1440, y: 280, collected: false },
-        { type: 'carrot', x: 1500, y: 320, collected: false }, { type: 'carrot', x: 1390, y: 448, collected: false }, { type: 'carrot', x: 1430, y: 448, collected: false },
-        { type: 'carrot', x: 1840, y: 360, collected: false }, { type: 'carrot', x: 1880, y: 280, collected: false }, { type: 'carrot', x: 1920, y: 120, collected: false },
-        { type: 'carrot', x: 1960, y: 120, collected: false }, { type: 'carrot', x: 2000, y: 120, collected: false }, { type: 'carrot', x: 2200, y: 408, collected: false }, { type: 'carrot', x: 2240, y: 408, collected: false },
-        { type: 'carrot', x: 2540, y: 408, collected: false }, { type: 'carrot', x: 2600, y: 360, collected: false }, { type: 'carrot', x: 2660, y: 320, collected: false },
-        { type: 'carrot', x: 2720, y: 408, collected: false }, { type: 'carrot', x: 2780, y: 370, collected: false }, { type: 'carrot', x: 2820, y: 330, collected: false }, { type: 'carrot', x: 2860, y: 290, collected: false },
-
-        { type: 'goal', x: 2880, y: 280, w: 48, h: 160, reached: false }
-    ];
+    // 金灿胡萝卜
+    addCarrotRow(5, 8, 10);
+    addCarrotArc(15, 6, 2);
+    addCarrotRow(23, 27, 7);
+    addCarrotRow(41, 46, 10);
+    addCarrotArc(58, 2, 3);
+    addCarrotRow(66, 70, 8);
+    addCarrotRow(74, 76, 9);
+    addCarrotRow(91, 101, 6, 2);
+    addCarrotArc(123, 6, 2);
+    addCarrotRow(131, 136, 10);
+    addCarrotArc(139, 1, 3);
+    addCarrotRow(150, 154, 9);
+    addCarrotRow(170, 174, 10);
+    addCarrotArc(189, 7, 2);
+    addCarrotRow(198, 203, 9);
+    addCarrotRow(207, 210, 4);
 }
 
-// 2. STAGE 2: 💎 幽暗地穴与紫晶矿坑 (Crystal Caverns)
+// 2. STAGE 2: 💎 幽暗地穴与紫晶矿坑 (Crystal Caverns) - 240 列马里奥超长大关
 function buildStage2() {
     tileMap.fill(0);
-    // 地底玄武岩地层 (row 11 为暗石板，row 12-13 为深矿层)
-    for (let c = 0; c < MAP_COLS; c++) {
-        for (let r = 11; r < 14; r++) {
-            if (c >= 26 && c <= 32) continue; // 毒性酸液深池
-            tileMap[r * MAP_COLS + c] = (r === 11) ? 1 : 2;
-        }
-    }
-    // 迪兹主场：大面积阻挡通道的裂纹玄武岩巨石 (cols 11-16, rows 8-10)
-    for (let c = 12; c <= 15; c++) {
+    entities = [];
+
+    // [区域 1: 矿坑坑道与玄武岩屏障 (cols 0-50)]
+    fillGround(0, 26);
+    // 迪兹主场：大面积阻挡通道的裂纹玄武岩巨石 (cols 12-16)
+    for (let c = 12; c <= 16; c++) {
         tileMap[8 * MAP_COLS + c] = 4;
         tileMap[9 * MAP_COLS + c] = 4;
-        tileMap[10 * MAP_COLS + c] = 4; // 迪兹开启旋风龙卷撞碎！
+        tileMap[10 * MAP_COLS + c] = 4;
     }
-    // 矿道高层水晶悬空栈道 (cols 19-24, row 8)
-    for (let c = 19; c <= 24; c++) tileMap[8 * MAP_COLS + c] = 3;
+    tileMap[7 * MAP_COLS + 14] = 7; // ? block
+    // 毒酸池 1 (cols 27-33) 与水晶桥
+    fillPlatform(28, 32, 8, 3);
 
-    // 矿车横跨酸液深池的高架木架桥 (cols 26-32, row 9)
-    for (let c = 26; c <= 32; c++) tileMap[9 * MAP_COLS + c] = 3;
+    // [区域 2: 矿车轨道与第一中途站 (cols 34-95)]
+    fillGround(34, 76);
+    fillPlatform(38, 48, 7, 3);
+    tileMap[4 * MAP_COLS + 43] = 7;
+    // 矿道低矮滑铲通道 (cols 54-60)
+    fillPlatform(54, 60, 9, 4);
+    // 中途存档点 1 (col 74)
+    entities.push({ type: 'checkpoint', id: 1, x: 74 * TILE_SIZE, y: 380, reached: false });
+    // 酸液深坑 2 (cols 77-85) 与移动浮台
+    entities.push({ type: 'platform', x: 77 * TILE_SIZE, y: 380, w: 80, h: 16, vx: 1.1, minX: 77 * TILE_SIZE, maxX: 83 * TILE_SIZE, originY: 380 });
 
-    // 福宝攀爬竖井：多根垂直攀爬矿梁 (cols 38, 42, 46, rows 3-10)
-    for (let r = 3; r <= 10; r++) {
-        tileMap[r * MAP_COLS + 38] = 5;
-        tileMap[r * MAP_COLS + 42] = 5;
-        tileMap[r * MAP_COLS + 46] = 5;
+    // [区域 3: 紫晶垂直竖井与攀爬矿梁 (cols 86-145)]
+    fillGround(86, 120);
+    // 福宝攀爬竖井：多根垂直攀爬木梁 (cols 96, 102, 108, rows 3-10)
+    fillPillar(96, 3, 10, 5);
+    fillPillar(102, 3, 10, 5);
+    fillPillar(108, 3, 10, 5);
+    fillPlatform(95, 109, 3, 3);
+    tileMap[2 * MAP_COLS + 102] = 7;
+    // 巨石堆 (cols 114-118)
+    for (let c = 114; c <= 118; c++) {
+        tileMap[9 * MAP_COLS + c] = 4;
+        tileMap[10 * MAP_COLS + c] = 4;
     }
-    // 竖井高空悬空平台 (rows 3, 6)
-    for (let c = 37; c <= 47; c++) {
-        if (c % 2 === 0) tileMap[3 * MAP_COLS + c] = 3;
-    }
+    // 深渊 3 (cols 121-128) 与浮石
+    fillPlatform(123, 124, 9, 3);
+    fillPlatform(126, 127, 8, 3);
 
-    // 巨型钟乳石洞与滑铲通道 (cols 52-58)
-    tileMap[10 * MAP_COLS + 52] = 4;
-    tileMap[9 * MAP_COLS + 53] = 4; tileMap[10 * MAP_COLS + 53] = 4;
-    tileMap[8 * MAP_COLS + 54] = 4; tileMap[9 * MAP_COLS + 54] = 4; // row 10 留空滑铲
-    tileMap[8 * MAP_COLS + 55] = 4; tileMap[9 * MAP_COLS + 55] = 4;
-    tileMap[9 * MAP_COLS + 56] = 4; tileMap[10 * MAP_COLS + 56] = 4;
+    // [区域 4: 晶石迷宫与第二中途站 (cols 129-190)]
+    fillGround(129, 158);
+    entities.push({ type: 'checkpoint', id: 2, x: 155 * TILE_SIZE, y: 380, reached: false });
+    fillPlatform(134, 146, 7, 3);
+    tileMap[5 * MAP_COLS + 140] = 7;
+    fillPillar(148, 4, 10, 5);
+    // 酸液深潭 4 (cols 159-168) 与移动浮台
+    entities.push({ type: 'platform', x: 159 * TILE_SIZE, y: 360, w: 80, h: 16, vx: -1.2, minX: 159 * TILE_SIZE, maxX: 166 * TILE_SIZE, originY: 360 });
 
-    entities = [
-        { type: 'balloon', x: 420, y: 220, vy: 0.35, originY: 220, content: 'star' },
-        { type: 'balloon', x: 1250, y: 200, vy: 0.35, originY: 200, content: 'heart' },
-        { type: 'balloon', x: 1800, y: 90, vy: 0.35, originY: 90, content: 'heart' },
-        { type: 'balloon', x: 2400, y: 220, vy: 0.35, originY: 220, content: 'star' },
+    // [区域 5: 钟乳石大殿与 Acme 胜利大钟 (cols 169-238)]
+    fillGround(169, 238);
+    // 巨大钟乳石倒挂与滑铲通道 (cols 176-184)
+    fillPlatform(176, 184, 9, 4);
+    fillStairs(195, 10, 5, 1, 4);
+    fillPlatform(200, 208, 6, 3);
+    tileMap[4 * MAP_COLS + 204] = 7;
+    // 关底金色 Acme 胜利大钟 (col 212)
+    entities.push({ type: 'goal', x: 212 * TILE_SIZE, y: 280, w: 48, h: 160, reached: false });
 
-        // 矿道特有小怪：凶悍洞穴鼠、石角牛、俯冲吸血蝙蝠
-        { type: 'enemy', enemyType: 'rat', x: 300, y: 404, vx: 1.2, w: 38, h: 36, minX: 200, maxX: 440, alive: true, anim: 0 },
-        { type: 'enemy', enemyType: 'bee', x: 500, y: 260, vx: -1.1, originY: 260, w: 34, h: 34, minX: 420, maxX: 600, alive: true, anim: 0 },
-        { type: 'enemy', enemyType: 'bull', x: 800, y: 398, vx: -1.0, w: 44, h: 42, minX: 700, maxX: 950, alive: true, anim: 0 },
-        { type: 'enemy', enemyType: 'bee', x: 1100, y: 280, vx: 1.0, originY: 280, w: 34, h: 34, minX: 1000, maxX: 1250, alive: true, anim: 0 },
-        { type: 'enemy', enemyType: 'rat', x: 1450, y: 324, vx: -1.0, w: 38, h: 36, minX: 1350, maxX: 1550, alive: true, anim: 0 },
-        { type: 'enemy', enemyType: 'bull', x: 1950, y: 398, vx: 1.1, w: 44, h: 42, minX: 1880, maxX: 2100, alive: true, anim: 0 },
-        { type: 'enemy', enemyType: 'bee', x: 2250, y: 250, vx: -1.0, originY: 250, w: 34, h: 34, minX: 2150, maxX: 2350, alive: true, anim: 0 },
-        { type: 'enemy', enemyType: 'rat', x: 2600, y: 404, vx: 1.0, w: 38, h: 36, minX: 2500, maxX: 2750, alive: true, anim: 0 },
+    // 道具气球
+    entities.push(
+        { type: 'balloon', x: 14 * TILE_SIZE, y: 180, vy: 0.35, originY: 180, content: 'star' },
+        { type: 'balloon', x: 43 * TILE_SIZE, y: 100, vy: 0.35, originY: 100, content: 'heart' },
+        { type: 'balloon', x: 102 * TILE_SIZE, y: 60, vy: 0.35, originY: 60, content: 'star' },
+        { type: 'balloon', x: 140 * TILE_SIZE, y: 140, vy: 0.35, originY: 140, content: 'heart' },
+        { type: 'balloon', x: 178 * TILE_SIZE, y: 120, vy: 0.35, originY: 120, content: 'star' },
+        { type: 'balloon', x: 204 * TILE_SIZE, y: 160, vy: 0.35, originY: 160, content: 'heart' }
+    );
 
-        // 33 根水晶矿坑胡萝卜
-        { type: 'carrot', x: 200, y: 370, collected: false }, { type: 'carrot', x: 240, y: 370, collected: false }, { type: 'carrot', x: 280, y: 370, collected: false },
-        { type: 'carrot', x: 500, y: 220, collected: false }, { type: 'carrot', x: 540, y: 220, collected: false }, { type: 'carrot', x: 580, y: 220, collected: false },
-        { type: 'carrot', x: 780, y: 310, collected: false }, { type: 'carrot', x: 820, y: 310, collected: false }, { type: 'carrot', x: 860, y: 310, collected: false },
-        { type: 'carrot', x: 920, y: 310, collected: false }, { type: 'carrot', x: 1100, y: 320, collected: false }, { type: 'carrot', x: 1160, y: 320, collected: false },
-        { type: 'carrot', x: 1220, y: 320, collected: false }, { type: 'carrot', x: 1280, y: 320, collected: false },
-        { type: 'carrot', x: 1520, y: 100, collected: false }, { type: 'carrot', x: 1560, y: 100, collected: false }, { type: 'carrot', x: 1600, y: 100, collected: false },
-        { type: 'carrot', x: 1680, y: 200, collected: false }, { type: 'carrot', x: 1720, y: 200, collected: false }, { type: 'carrot', x: 1760, y: 200, collected: false },
-        { type: 'carrot', x: 1840, y: 100, collected: false }, { type: 'carrot', x: 1880, y: 100, collected: false },
-        { type: 'carrot', x: 2180, y: 408, collected: false }, { type: 'carrot', x: 2220, y: 408, collected: false }, { type: 'carrot', x: 2260, y: 408, collected: false },
-        { type: 'carrot', x: 2450, y: 350, collected: false }, { type: 'carrot', x: 2500, y: 310, collected: false }, { type: 'carrot', x: 2550, y: 270, collected: false },
-        { type: 'carrot', x: 2650, y: 408, collected: false }, { type: 'carrot', x: 2700, y: 370, collected: false }, { type: 'carrot', x: 2750, y: 330, collected: false },
-        { type: 'carrot', x: 2800, y: 290, collected: false }, { type: 'carrot', x: 2850, y: 250, collected: false },
+    // 敌人巡逻队
+    entities.push(
+        { type: 'enemy', enemyType: 'rat', x: 8 * TILE_SIZE, y: 404, vx: 1.1, w: 38, h: 36, minX: 5 * TILE_SIZE, maxX: 11 * TILE_SIZE, alive: true, anim: 0 },
+        { type: 'enemy', enemyType: 'bee', x: 22 * TILE_SIZE, y: 260, vx: -1.0, originY: 260, w: 34, h: 34, minX: 18 * TILE_SIZE, maxX: 25 * TILE_SIZE, alive: true, anim: 0 },
+        { type: 'enemy', enemyType: 'bull', x: 40 * TILE_SIZE, y: 398, vx: -1.0, w: 44, h: 42, minX: 36 * TILE_SIZE, maxX: 46 * TILE_SIZE, alive: true, anim: 0 },
+        { type: 'enemy', enemyType: 'bee', x: 62 * TILE_SIZE, y: 240, vx: 1.2, originY: 240, w: 34, h: 34, minX: 58 * TILE_SIZE, maxX: 68 * TILE_SIZE, alive: true, anim: 0 },
+        { type: 'enemy', enemyType: 'rat', x: 70 * TILE_SIZE, y: 404, vx: -1.0, w: 38, h: 36, minX: 66 * TILE_SIZE, maxX: 73 * TILE_SIZE, alive: true, anim: 0 },
+        { type: 'enemy', enemyType: 'bull', x: 90 * TILE_SIZE, y: 398, vx: 1.0, w: 44, h: 42, minX: 86 * TILE_SIZE, maxX: 94 * TILE_SIZE, alive: true, anim: 0 },
+        { type: 'enemy', enemyType: 'bee', x: 112 * TILE_SIZE, y: 220, vx: -1.1, originY: 220, w: 34, h: 34, minX: 108 * TILE_SIZE, maxX: 118 * TILE_SIZE, alive: true, anim: 0 },
+        { type: 'enemy', enemyType: 'rat', x: 135 * TILE_SIZE, y: 404, vx: 1.0, w: 38, h: 36, minX: 130 * TILE_SIZE, maxX: 142 * TILE_SIZE, alive: true, anim: 0 },
+        { type: 'enemy', enemyType: 'bull', x: 152 * TILE_SIZE, y: 398, vx: -1.1, w: 44, h: 42, minX: 147 * TILE_SIZE, maxX: 156 * TILE_SIZE, alive: true, anim: 0 },
+        { type: 'enemy', enemyType: 'bee', x: 174 * TILE_SIZE, y: 240, vx: 1.0, originY: 240, w: 34, h: 34, minX: 170 * TILE_SIZE, maxX: 182 * TILE_SIZE, alive: true, anim: 0 },
+        { type: 'enemy', enemyType: 'rat', x: 190 * TILE_SIZE, y: 404, vx: -1.0, w: 38, h: 36, minX: 186 * TILE_SIZE, maxX: 195 * TILE_SIZE, alive: true, anim: 0 },
+        { type: 'enemy', enemyType: 'bull', x: 218 * TILE_SIZE, y: 398, vx: 1.0, w: 44, h: 42, minX: 214 * TILE_SIZE, maxX: 226 * TILE_SIZE, alive: true, anim: 0 }
+    );
 
-        { type: 'goal', x: 2880, y: 280, w: 48, h: 160, reached: false }
-    ];
+    // 紫晶胡萝卜
+    addCarrotRow(6, 10, 10);
+    addCarrotRow(18, 24, 10);
+    addCarrotArc(30, 6, 2);
+    addCarrotRow(39, 47, 6);
+    addCarrotRow(55, 59, 8);
+    addCarrotRow(68, 72, 10);
+    addCarrotArc(102, 1, 3);
+    addCarrotRow(123, 127, 7);
+    addCarrotRow(135, 145, 6);
+    addCarrotRow(150, 154, 10);
+    addCarrotArc(163, 6, 2);
+    addCarrotRow(177, 183, 8);
+    addCarrotRow(196, 202, 9);
+    addCarrotArc(204, 3, 2);
+    addCarrotRow(216, 222, 10);
 }
 
-// 3. STAGE 3: ☁️ 奇幻云海与彩虹天际 (Rainbow Peaks)
+// 3. STAGE 3: ☁️ 奇幻云海与彩虹天际 (Rainbow Peaks) - 240 列马里奥超长大关
 function buildStage3() {
     tileMap.fill(0);
-    // 高空云海地层 (row 11 为粉蓝浮云，深渊峡谷跨度极大，普拉基鸭翱翔主场！)
-    for (let c = 0; c < MAP_COLS; c++) {
-        // 多个超大跨度云中深渊 (cols 14-22, cols 34-42)
-        if ((c >= 14 && c <= 22) || (c >= 34 && c <= 42)) continue;
-        for (let r = 11; r < 14; r++) tileMap[r * MAP_COLS + c] = (r === 11) ? 1 : 2;
-    }
+    entities = [];
 
-    // 跨度 1 中的超级弹簧浮云跳板 (col 18, row 10, tile === 6 踩踏超高弹跳！)
-    tileMap[10 * MAP_COLS + 18] = 6;
-    tileMap[8 * MAP_COLS + 16] = 3; tileMap[8 * MAP_COLS + 20] = 3;
+    // [区域 1: 彩虹浮岛与弹簧初试 (cols 0-50)]
+    fillGround(0, 18);
+    tileMap[7 * MAP_COLS + 10] = 7;
+    // 弹簧浮云 (col 22, 26, row 10, tile === 6)
+    tileMap[10 * MAP_COLS + 22] = 6;
+    tileMap[8 * MAP_COLS + 24] = 3;
+    tileMap[10 * MAP_COLS + 26] = 6;
+    fillGround(28, 46);
+    fillPlatform(34, 42, 8, 3);
+    tileMap[6 * MAP_COLS + 38] = 7;
 
-    // 彩虹阶梯 (cols 25-30, rows 6-10)
-    tileMap[10 * MAP_COLS + 25] = 3;
-    tileMap[9 * MAP_COLS + 26] = 3;
-    tileMap[8 * MAP_COLS + 27] = 3;
-    tileMap[7 * MAP_COLS + 28] = 3;
-    tileMap[6 * MAP_COLS + 29] = 3;
+    // [区域 2: 飞跃千丈彩虹与第一中途站 (cols 47-95)]
+    // 巨大云端断崖 1 (cols 47-58) 与移动云梯
+    entities.push({ type: 'platform', x: 48 * TILE_SIZE, y: 360, w: 80, h: 16, vx: 1.3, minX: 48 * TILE_SIZE, maxX: 56 * TILE_SIZE, originY: 360 });
+    fillGround(59, 78);
+    // 中途存档点 1 (col 76)
+    entities.push({ type: 'checkpoint', id: 1, x: 76 * TILE_SIZE, y: 380, reached: false });
+    // 彩虹阶梯 (cols 64-70, rows 6-10)
+    for (let i = 0; i < 5; i++) tileMap[(10 - i) * MAP_COLS + (65 + i)] = 3;
 
-    // 跨度 2 中的浮动云朵跳板 (cols 35-41, rows 7, 9)
-    tileMap[9 * MAP_COLS + 36] = 6; // 弹簧云朵
-    tileMap[7 * MAP_COLS + 39] = 3;
-    tileMap[9 * MAP_COLS + 41] = 6;
+    // [区域 3: 天空神殿与长空翱翔 (cols 79-145)]
+    // 跨渊 2 (cols 79-92) - 普拉基鸭翱翔！
+    tileMap[9 * MAP_COLS + 82] = 6;
+    tileMap[7 * MAP_COLS + 86] = 3;
+    tileMap[9 * MAP_COLS + 90] = 6;
+    fillGround(93, 126);
+    // 天空神殿主殿与天堂之柱
+    fillPlatform(100, 116, 6, 3);
+    fillPillar(104, 6, 10, 5);
+    fillPillar(112, 6, 10, 5);
+    tileMap[4 * MAP_COLS + 108] = 7;
+    // 冲刺飞跃天桥 (cols 120-125, row 8)
+    fillPlatform(120, 125, 8, 3);
 
-    // 天空神殿与彩虹长廊 (cols 48-60, row 7)
-    for (let c = 48; c <= 58; c++) tileMap[7 * MAP_COLS + c] = 3;
-    for (let r = 7; r <= 10; r++) tileMap[r * MAP_COLS + 53] = 5; // 天堂之柱
+    // [区域 4: 暴风云带与第二中途站 (cols 127-190)]
+    // 深渊 3 (cols 127-138) 与移动浮台
+    entities.push({ type: 'platform', x: 128 * TILE_SIZE, y: 340, w: 80, h: 16, vx: -1.2, minX: 128 * TILE_SIZE, maxX: 136 * TILE_SIZE, originY: 340 });
+    fillGround(139, 160);
+    // 中途存档点 2 (col 156)
+    entities.push({ type: 'checkpoint', id: 2, x: 156 * TILE_SIZE, y: 380, reached: false });
+    tileMap[9 * MAP_COLS + 148] = 6;
+    fillPlatform(149, 154, 7, 3);
+    tileMap[5 * MAP_COLS + 151] = 7;
+    // 绝壁裂隙 (cols 161-172)
+    fillPlatform(164, 165, 8, 3);
+    tileMap[10 * MAP_COLS + 168] = 6;
 
-    // 冲刺飞跃天桥 (cols 64-70, row 9)
-    for (let c = 64; c <= 70; c++) tileMap[9 * MAP_COLS + c] = 3;
+    // [区域 5: 最终彩虹长廊与 Acme 胜利大钟 (cols 173-238)]
+    fillGround(173, 238);
+    fillStairs(185, 10, 5, 1, 4);
+    fillPlatform(192, 204, 6, 3);
+    tileMap[4 * MAP_COLS + 198] = 7;
+    // 关底金色 Acme 胜利大钟 (col 212)
+    entities.push({ type: 'goal', x: 212 * TILE_SIZE, y: 280, w: 48, h: 160, reached: false });
 
-    entities = [
-        { type: 'balloon', x: 380, y: 220, vy: 0.35, originY: 220, content: 'star' },
-        { type: 'balloon', x: 1200, y: 150, vy: 0.35, originY: 150, content: 'heart' },
-        { type: 'balloon', x: 1900, y: 120, vy: 0.35, originY: 120, content: 'star' },
-        { type: 'balloon', x: 2350, y: 160, vy: 0.35, originY: 160, content: 'heart' },
+    // 道具气球
+    entities.push(
+        { type: 'balloon', x: 10 * TILE_SIZE, y: 160, vy: 0.35, originY: 160, content: 'star' },
+        { type: 'balloon', x: 38 * TILE_SIZE, y: 120, vy: 0.35, originY: 120, content: 'heart' },
+        { type: 'balloon', x: 108 * TILE_SIZE, y: 80, vy: 0.35, originY: 80, content: 'star' },
+        { type: 'balloon', x: 151 * TILE_SIZE, y: 100, vy: 0.35, originY: 100, content: 'heart' },
+        { type: 'balloon', x: 188 * TILE_SIZE, y: 140, vy: 0.35, originY: 140, content: 'star' },
+        { type: 'balloon', x: 206 * TILE_SIZE, y: 120, vy: 0.35, originY: 120, content: 'heart' }
+    );
 
-        // 天空敌人：高空暴风巡航蜂、浮空云怪
-        { type: 'enemy', enemyType: 'bee', x: 400, y: 220, vx: 1.3, originY: 220, w: 34, h: 34, minX: 300, maxX: 550, alive: true, anim: 0 },
-        { type: 'enemy', enemyType: 'bee', x: 750, y: 180, vx: -1.2, originY: 180, w: 34, h: 34, minX: 650, maxX: 900, alive: true, anim: 0 },
-        { type: 'enemy', enemyType: 'rat', x: 1050, y: 404, vx: 1.1, w: 38, h: 36, minX: 950, maxX: 1200, alive: true, anim: 0 },
-        { type: 'enemy', enemyType: 'bee', x: 1450, y: 190, vx: 1.2, originY: 190, w: 34, h: 34, minX: 1350, maxX: 1600, alive: true, anim: 0 },
-        { type: 'enemy', enemyType: 'bee', x: 1750, y: 160, vx: -1.3, originY: 160, w: 34, h: 34, minX: 1650, maxX: 1900, alive: true, anim: 0 },
-        { type: 'enemy', enemyType: 'bull', x: 2100, y: 240, vx: 0.9, w: 44, h: 42, minX: 1950, maxX: 2250, alive: true, anim: 0 },
-        { type: 'enemy', enemyType: 'bee', x: 2450, y: 220, vx: 1.1, originY: 220, w: 34, h: 34, minX: 2350, maxX: 2600, alive: true, anim: 0 },
-        { type: 'enemy', enemyType: 'rat', x: 2650, y: 404, vx: -1.0, w: 38, h: 36, minX: 2550, maxX: 2750, alive: true, anim: 0 },
+    // 敌人巡逻队
+    entities.push(
+        { type: 'enemy', enemyType: 'bee', x: 14 * TILE_SIZE, y: 220, vx: 1.2, originY: 220, w: 34, h: 34, minX: 10 * TILE_SIZE, maxX: 17 * TILE_SIZE, alive: true, anim: 0 },
+        { type: 'enemy', enemyType: 'bee', x: 36 * TILE_SIZE, y: 200, vx: -1.2, originY: 200, w: 34, h: 34, minX: 30 * TILE_SIZE, maxX: 42 * TILE_SIZE, alive: true, anim: 0 },
+        { type: 'enemy', enemyType: 'rat', x: 62 * TILE_SIZE, y: 404, vx: 1.0, w: 38, h: 36, minX: 60 * TILE_SIZE, maxX: 72 * TILE_SIZE, alive: true, anim: 0 },
+        { type: 'enemy', enemyType: 'bee', x: 86 * TILE_SIZE, y: 180, vx: 1.1, originY: 180, w: 34, h: 34, minX: 82 * TILE_SIZE, maxX: 91 * TILE_SIZE, alive: true, anim: 0 },
+        { type: 'enemy', enemyType: 'bull', x: 98 * TILE_SIZE, y: 398, vx: -1.0, w: 44, h: 42, minX: 95 * TILE_SIZE, maxX: 106 * TILE_SIZE, alive: true, anim: 0 },
+        { type: 'enemy', enemyType: 'bee', x: 114 * TILE_SIZE, y: 160, vx: -1.3, originY: 160, w: 34, h: 34, minX: 108 * TILE_SIZE, maxX: 120 * TILE_SIZE, alive: true, anim: 0 },
+        { type: 'enemy', enemyType: 'rat', x: 145 * TILE_SIZE, y: 404, vx: 1.1, w: 38, h: 36, minX: 140 * TILE_SIZE, maxX: 152 * TILE_SIZE, alive: true, anim: 0 },
+        { type: 'enemy', enemyType: 'bee', x: 164 * TILE_SIZE, y: 200, vx: 1.0, originY: 200, w: 34, h: 34, minX: 162 * TILE_SIZE, maxX: 170 * TILE_SIZE, alive: true, anim: 0 },
+        { type: 'enemy', enemyType: 'bull', x: 180 * TILE_SIZE, y: 398, vx: -1.0, w: 44, h: 42, minX: 175 * TILE_SIZE, maxX: 188 * TILE_SIZE, alive: true, anim: 0 },
+        { type: 'enemy', enemyType: 'bee', x: 200 * TILE_SIZE, y: 160, vx: -1.2, originY: 160, w: 34, h: 34, minX: 194 * TILE_SIZE, maxX: 208 * TILE_SIZE, alive: true, anim: 0 }
+    );
 
-        // 33 根天际彩虹胡萝卜
-        { type: 'carrot', x: 220, y: 360, collected: false }, { type: 'carrot', x: 260, y: 320, collected: false }, { type: 'carrot', x: 300, y: 280, collected: false },
-        { type: 'carrot', x: 600, y: 150, collected: false }, { type: 'carrot', x: 650, y: 120, collected: false }, { type: 'carrot', x: 700, y: 150, collected: false },
-        { type: 'carrot', x: 750, y: 180, collected: false }, { type: 'carrot', x: 800, y: 360, collected: false },
-        { type: 'carrot', x: 1040, y: 220, collected: false }, { type: 'carrot', x: 1080, y: 180, collected: false }, { type: 'carrot', x: 1120, y: 140, collected: false },
-        { type: 'carrot', x: 1160, y: 180, collected: false }, { type: 'carrot', x: 1480, y: 180, collected: false }, { type: 'carrot', x: 1540, y: 150, collected: false },
-        { type: 'carrot', x: 1600, y: 120, collected: false }, { type: 'carrot', x: 1660, y: 150, collected: false },
-        { type: 'carrot', x: 1950, y: 220, collected: false }, { type: 'carrot', x: 2000, y: 220, collected: false }, { type: 'carrot', x: 2050, y: 220, collected: false },
-        { type: 'carrot', x: 2100, y: 220, collected: false }, { type: 'carrot', x: 2150, y: 220, collected: false }, { type: 'carrot', x: 2200, y: 220, collected: false },
-        { type: 'carrot', x: 2250, y: 220, collected: false }, { type: 'carrot', x: 2300, y: 220, collected: false },
-        { type: 'carrot', x: 2580, y: 320, collected: false }, { type: 'carrot', x: 2620, y: 280, collected: false }, { type: 'carrot', x: 2660, y: 240, collected: false },
-        { type: 'carrot', x: 2700, y: 280, collected: false }, { type: 'carrot', x: 2740, y: 320, collected: false }, { type: 'carrot', x: 2780, y: 360, collected: false },
-        { type: 'carrot', x: 2820, y: 320, collected: false }, { type: 'carrot', x: 2860, y: 280, collected: false }, { type: 'carrot', x: 2890, y: 240, collected: false },
-
-        { type: 'goal', x: 2880, y: 280, w: 48, h: 160, reached: false }
-    ];
+    // 彩虹金胡萝卜
+    addCarrotRow(4, 9, 10);
+    addCarrotArc(24, 5, 2);
+    addCarrotRow(35, 41, 7);
+    addCarrotArc(52, 6, 2);
+    addCarrotRow(66, 70, 5);
+    addCarrotArc(86, 4, 3);
+    addCarrotRow(101, 115, 5, 2);
+    addCarrotArc(132, 5, 2);
+    addCarrotRow(141, 146, 10);
+    addCarrotRow(150, 154, 6);
+    addCarrotArc(167, 5, 2);
+    addCarrotRow(175, 180, 10);
+    addCarrotRow(193, 203, 5, 2);
+    addCarrotRow(216, 222, 10);
 }
 
-// 4. STAGE 4: 🛸 最终决战：达克·维德太空战舰 (Duck Vader Boss Stage)
+// 4. STAGE 4: 🛸 最终决战：达克·维德太空战舰 (Duck Vader Boss Stage) - 240 列马里奥超长大关
 function buildStage4() {
     tileMap.fill(0);
-    // 飞船高科技金属甲板 (row 11 为钛金甲板，row 12-13 为能量机舱)
-    for (let c = 0; c < MAP_COLS; c++) {
-        for (let r = 11; r < 14; r++) tileMap[r * MAP_COLS + c] = (r === 11) ? 1 : 2;
-    }
-    // 前段障碍机舱 (cols 8-38)
-    tileMap[10 * MAP_COLS + 10] = 4; tileMap[9 * MAP_COLS + 10] = 4;
-    for (let c = 14; c <= 20; c++) tileMap[8 * MAP_COLS + c] = 3;
-    tileMap[10 * MAP_COLS + 25] = 4; tileMap[9 * MAP_COLS + 25] = 4; // 激光障碍
-    for (let c = 28; c <= 34; c++) tileMap[7 * MAP_COLS + c] = 3;
+    entities = [];
 
-    // 终极 BOSS 竞技场 (cols 45-78)
-    // 竞技场左侧悬浮能量台阶 (cols 48-52, row 8)
-    for (let c = 48; c <= 52; c++) tileMap[8 * MAP_COLS + c] = 3;
-    // 竞技场右侧悬浮能量台阶 (cols 68-72, row 8)
-    for (let c = 68; c <= 72; c++) tileMap[8 * MAP_COLS + c] = 3;
-    // 竞技场中央升降踏板 (cols 58-62, row 9)
-    for (let c = 58; c <= 62; c++) tileMap[9 * MAP_COLS + c] = 3;
+    // [区域 1: 战舰外层甲板 (cols 0-60)]
+    fillGround(0, 48);
+    tileMap[7 * MAP_COLS + 16] = 7;
+    tileMap[10 * MAP_COLS + 24] = 4;
+    tileMap[9 * MAP_COLS + 24] = 4;
+    fillPlatform(28, 36, 8, 3);
+    tileMap[6 * MAP_COLS + 32] = 7;
+    // 反应堆裂隙 1 (cols 49-58) 与等离子浮台
+    entities.push({ type: 'platform', x: 49 * TILE_SIZE, y: 380, w: 80, h: 16, vx: 1.2, minX: 49 * TILE_SIZE, maxX: 56 * TILE_SIZE, originY: 380 });
+
+    // [区域 2: 能源核心走廊与第一中途站 (cols 59-115)]
+    fillGround(59, 86);
+    // 中途存档点 1 (col 82)
+    entities.push({ type: 'checkpoint', id: 1, x: 82 * TILE_SIZE, y: 380, reached: false });
+    fillPlatform(66, 74, 8, 3);
+    tileMap[6 * MAP_COLS + 70] = 7;
+    // 激光防御阵列 (cols 87-98)
+    fillPlatform(87, 98, 9, 4);
+    fillGround(99, 148);
+
+    // [区域 3: 动力竖井与第二中途站 (cols 116-175)]
+    fillPillar(112, 3, 10, 5);
+    fillPillar(120, 3, 10, 5);
+    fillPlatform(110, 122, 3, 3);
+    tileMap[2 * MAP_COLS + 116] = 7;
+    fillPlatform(130, 142, 7, 3);
+    tileMap[5 * MAP_COLS + 136] = 7;
+    // 中途存档点 2 (col 152)
+    entities.push({ type: 'checkpoint', id: 2, x: 152 * TILE_SIZE, y: 380, reached: false });
+    // 战舰尾焰深渊 (cols 153-165) 与移动浮台
+    entities.push({ type: 'platform', x: 153 * TILE_SIZE, y: 360, w: 80, h: 16, vx: -1.3, minX: 153 * TILE_SIZE, maxX: 163 * TILE_SIZE, originY: 360 });
+
+    // [区域 4: 王座前厅与补给站 (cols 166-195)]
+    fillGround(166, 195);
+    fillPlatform(174, 186, 8, 3);
+    tileMap[6 * MAP_COLS + 180] = 7;
+
+    // [区域 5: 决战达克·维德竞技场 (cols 196-238)]
+    fillGround(196, 238);
+    // 竞技场左侧悬浮台阶 (cols 202-207, row 8)
+    fillPlatform(202, 207, 8, 3);
+    // 竞技场右侧悬浮台阶 (cols 224-229, row 8)
+    fillPlatform(224, 229, 8, 3);
+    // 竞技场中央升降踏板 (cols 213-218, row 9)
+    fillPlatform(213, 218, 9, 3);
 
     // 激活 BOSS DUCK VADER
     boss.active = true;
-    boss.x = 2580;
-    boss.y = 220;
+    boss.x = 8400;
+    boss.y = 200;
+    boss.arenaBaseX = 8200;
     boss.hp = 5;
     boss.maxHp = 5;
     boss.timer = 0;
@@ -2422,24 +2662,41 @@ function buildStage4() {
     if (bossHud) bossHud.style.display = 'flex';
     updateBossHUD();
 
-    entities = [
-        { type: 'balloon', x: 380, y: 200, vy: 0.35, originY: 200, content: 'heart' },
-        { type: 'balloon', x: 1080, y: 160, vy: 0.35, originY: 160, content: 'star' },
-        { type: 'balloon', x: 1800, y: 220, vy: 0.35, originY: 220, content: 'heart' },
+    // 道具气球
+    entities.push(
+        { type: 'balloon', x: 12 * TILE_SIZE, y: 180, vy: 0.35, originY: 180, content: 'heart' },
+        { type: 'balloon', x: 32 * TILE_SIZE, y: 140, vy: 0.35, originY: 140, content: 'star' },
+        { type: 'balloon', x: 70 * TILE_SIZE, y: 140, vy: 0.35, originY: 140, content: 'heart' },
+        { type: 'balloon', x: 116 * TILE_SIZE, y: 60, vy: 0.35, originY: 60, content: 'star' },
+        { type: 'balloon', x: 180 * TILE_SIZE, y: 160, vy: 0.35, originY: 160, content: 'heart' },
+        { type: 'balloon', x: 198 * TILE_SIZE, y: 200, vy: 0.35, originY: 200, content: 'star' }
+    );
 
-        // 飞船机械杂兵
-        { type: 'enemy', enemyType: 'rat', x: 450, y: 404, vx: 1.2, w: 38, h: 36, minX: 350, maxX: 600, alive: true, anim: 0 },
-        { type: 'enemy', enemyType: 'bull', x: 900, y: 398, vx: -1.0, w: 44, h: 42, minX: 800, maxX: 1050, alive: true, anim: 0 },
-        { type: 'enemy', enemyType: 'bee', x: 1350, y: 240, vx: 1.2, originY: 240, w: 34, h: 34, minX: 1250, maxX: 1500, alive: true, anim: 0 },
+    // 巡逻敌兵
+    entities.push(
+        { type: 'enemy', enemyType: 'rat', x: 10 * TILE_SIZE, y: 404, vx: 1.1, w: 38, h: 36, minX: 6 * TILE_SIZE, maxX: 14 * TILE_SIZE, alive: true, anim: 0 },
+        { type: 'enemy', enemyType: 'bull', x: 26 * TILE_SIZE, y: 398, vx: -1.0, w: 44, h: 42, minX: 20 * TILE_SIZE, maxX: 30 * TILE_SIZE, alive: true, anim: 0 },
+        { type: 'enemy', enemyType: 'bee', x: 42 * TILE_SIZE, y: 220, vx: 1.2, originY: 220, w: 34, h: 34, minX: 38 * TILE_SIZE, maxX: 46 * TILE_SIZE, alive: true, anim: 0 },
+        { type: 'enemy', enemyType: 'rat', x: 64 * TILE_SIZE, y: 404, vx: -1.1, w: 38, h: 36, minX: 60 * TILE_SIZE, maxX: 70 * TILE_SIZE, alive: true, anim: 0 },
+        { type: 'enemy', enemyType: 'bull', x: 104 * TILE_SIZE, y: 398, vx: 1.0, w: 44, h: 42, minX: 100 * TILE_SIZE, maxX: 110 * TILE_SIZE, alive: true, anim: 0 },
+        { type: 'enemy', enemyType: 'bee', x: 136 * TILE_SIZE, y: 180, vx: -1.2, originY: 180, w: 34, h: 34, minX: 130 * TILE_SIZE, maxX: 142 * TILE_SIZE, alive: true, anim: 0 },
+        { type: 'enemy', enemyType: 'rat', x: 170 * TILE_SIZE, y: 404, vx: 1.1, w: 38, h: 36, minX: 166 * TILE_SIZE, maxX: 176 * TILE_SIZE, alive: true, anim: 0 }
+    );
 
-        // 战舰应急能量萝卜 (20 根)
-        { type: 'carrot', x: 220, y: 370, collected: false }, { type: 'carrot', x: 260, y: 370, collected: false },
-        { type: 'carrot', x: 600, y: 280, collected: false }, { type: 'carrot', x: 640, y: 280, collected: false },
-        { type: 'carrot', x: 1150, y: 240, collected: false }, { type: 'carrot', x: 1200, y: 240, collected: false },
-        { type: 'carrot', x: 1950, y: 280, collected: false }, { type: 'carrot', x: 2000, y: 280, collected: false },
-        { type: 'carrot', x: 2350, y: 370, collected: false }, { type: 'carrot', x: 2400, y: 370, collected: false },
-        { type: 'carrot', x: 2450, y: 370, collected: false }, { type: 'carrot', x: 2500, y: 370, collected: false }
-    ];
+    // 战舰能量胡萝卜
+    addCarrotRow(4, 8, 10);
+    addCarrotRow(18, 22, 10);
+    addCarrotRow(29, 35, 7);
+    addCarrotArc(53, 6, 2);
+    addCarrotRow(67, 73, 7);
+    addCarrotRow(88, 96, 8);
+    addCarrotArc(116, 1, 3);
+    addCarrotRow(132, 140, 6);
+    addCarrotArc(158, 6, 2);
+    addCarrotRow(175, 185, 7);
+    addCarrotRow(203, 206, 7);
+    addCarrotRow(214, 217, 8);
+    addCarrotRow(225, 228, 7);
 }
 
 const STAGES = [
@@ -2449,7 +2706,7 @@ const STAGES = [
         name: "阳光原野与绿茵丘陵",
         subtitle: "ACME ACRES",
         desc: "🐰 巴斯特兔主场 • 练习贴地滑铲与木拱桥越障，敲响原野终点大钟！",
-        targetCarrots: 33,
+        targetCarrots: 45,
         build: buildStage1
     },
     {
@@ -2458,7 +2715,7 @@ const STAGES = [
         name: "幽暗地穴与紫晶矿坑",
         subtitle: "CRYSTAL CAVERNS",
         desc: "🌪️ 迪兹恶魔 & 🐱 福宝主场 • 旋风龙卷撞碎玄武岩壁，利爪攀爬幽深矿道！",
-        targetCarrots: 33,
+        targetCarrots: 45,
         build: buildStage2
     },
     {
@@ -2467,7 +2724,7 @@ const STAGES = [
         name: "奇幻云海与彩虹天际",
         subtitle: "RAINBOW PEAKS",
         desc: "🦆 普拉基鸭主场 • 连续扑腾高飞与无重力长空滑翔，飞跃万丈深渊！",
-        targetCarrots: 33,
+        targetCarrots: 45,
         build: buildStage3
     },
     {
@@ -2476,7 +2733,7 @@ const STAGES = [
         name: "决战：维德鸭太空战舰",
         subtitle: "DUCK VADER BOSS",
         desc: "🛸 最终 BOSS 战 • 突破激光陷阱，踩头/旋风击破宇宙霸主 DUCK VADER！",
-        targetCarrots: 12,
+        targetCarrots: 25,
         isBoss: true,
         build: buildStage4
     }
@@ -2563,6 +2820,8 @@ function loadStage(stageIdx) {
     player.pluckyGliding = false;
     player.stageClear = false;
     player.hasHeart = true;
+    player.hp = 3;
+    player.maxHp = 3;
     player.invincibleTimer = 90;
     cameraX = 0;
 
@@ -2570,7 +2829,7 @@ function loadStage(stageIdx) {
     boss.bullets = [];
 
     const clearTarget = document.getElementById('clear-target-carrots');
-    if (clearTarget) clearTarget.innerText = st.targetCarrots || 33;
+    if (clearTarget) clearTarget.innerText = st.targetCarrots || 45;
 
     st.build();
     updateLivesHUD();
@@ -2592,6 +2851,8 @@ function retryCurrentStage() {
 
 function restartGameFromStage1() {
     player.lives = 3;
+    player.hp = 3;
+    player.maxHp = 3;
     player.score = 0;
     player.carrots = 0;
     player.hasHeart = true;
@@ -2614,7 +2875,7 @@ function spawnDust(x, y, vx, vy, color, size = 4) {
     particles.push({ x, y, vx, vy, color, life: 20, maxLife: 20, size });
 }
 
-// 主角对象（支持死亡仪式感、降落伞重生与黄金护盾）
+// 主角对象（支持升级角色替身保命、死亡仪式感、降落伞重生与黄金护盾）
 const player = {
     x: 80, y: 368, vx: 0, vy: 0,
     w: 38, h: 72, facing: 1,
@@ -2630,6 +2891,10 @@ const player = {
     character: CHARACTERS.BUSTER,
     animTimer: 0, animFrame: 0,
     stageClear: false,
+
+    // 生命与血量系统 (升级角色保命机制)
+    hp: 3,
+    maxHp: 3,
 
     // 仪式感状态
     isDying: false,
@@ -2661,6 +2926,47 @@ const player = {
 };
 
 let entities = [];
+
+// 升级角色保命机制：替身脱险！代替承受致命重创并回归初始英雄巴斯特兔
+function triggerPartnerShieldSave() {
+    if (player.character === CHARACTERS.BUSTER) return false;
+
+    const partnerNames = {
+        [CHARACTERS.PLUCKY]: '🦆 普拉基鸭 (Plucky Duck)',
+        [CHARACTERS.DIZZY]: '🌪️ 迪兹恶魔 (Dizzy Devil)',
+        [CHARACTERS.FURRBALL]: '🐱 小猫福宝 (Furrball Cat)'
+    };
+    const pName = partnerNames[player.character] || '伙伴英雄';
+
+    sfx.playMorph();
+    sfx.playHurt();
+    screenShake = 12;
+
+    player.comicText = '🛡️ 替身脱险!!';
+    player.comicTimer = 90;
+
+    for (let i = 0; i < 35; i++) {
+        spawnDust(
+            player.x + 20 + (Math.random() - 0.5) * 32,
+            player.y + 36 + (Math.random() - 0.5) * 32,
+            (Math.random() - 0.5) * 8,
+            (Math.random() - 0.5) * 8,
+            ['#fde047', '#38bdf8', '#34d399', '#a855f7', '#ffffff'][Math.floor(Math.random() * 5)],
+            6
+        );
+    }
+
+    // 切换回初始主角，保留原有生命与当前HP，赋予2.5秒黄金无敌护盾与击退
+    switchChar(CHARACTERS.BUSTER);
+    player.invincibleTimer = 150; // 2.5 秒黄金无敌护盾
+    player.hurtTimer = 35;
+    player.vy = -7.5;
+    player.vx = -player.facing * 3.6;
+
+    showAlertBanner(`🛡️ 替身保命触发！${pName} 代替承受了重创，巴斯特兔安全脱险！`, 3200);
+    updateLivesHUD();
+    return true;
+}
 
 // 死亡仪式感：受击弹射升空、旋转抛物线、漫画提示气泡、惨叫哀鸣
 function triggerPlayerDeath(type = 'hit') {
@@ -2812,6 +3118,9 @@ function executeInPlaceRevival() {
     switchChar(CHARACTERS.BUSTER);
 
     player.hasHeart = true;
+    player.hp = 3;
+    player.maxHp = 3;
+    updateLivesHUD();
     player.x = player.respawnTargetX;
     player.y = player.respawnTargetY;
     player.vx = 0;
@@ -2877,8 +3186,9 @@ function updateBossPhysics() {
     boss.stateTimer++;
     if (boss.hurtTimer > 0) boss.hurtTimer--;
 
-    if (player.x > 2000) {
-        const arenaStart = 2050;
+    // 达克·维德竞技场锁定：玩家进入大决战区域 (x > 7600) 后锁定镜头与左右边界
+    if (player.x > 7600) {
+        const arenaStart = 7600;
         if (cameraX < arenaStart) cameraX = arenaStart;
         if (player.x < arenaStart) {
             player.x = arenaStart;
@@ -2889,8 +3199,8 @@ function updateBossPhysics() {
     if (boss.state === 'hover') {
         boss.x += boss.vx;
         boss.y = 180 + Math.sin(boss.timer * 0.05) * 45;
-        if (boss.x < 2400) boss.vx = 1.6;
-        if (boss.x > 2950) boss.vx = -1.6;
+        if (boss.x < 7800) boss.vx = 1.6;
+        if (boss.x > 8650) boss.vx = -1.6;
 
         if (boss.timer % 120 === 0) {
             boss.bullets.push({
@@ -2898,7 +3208,7 @@ function updateBossPhysics() {
                 y: boss.y + 35,
                 vx: -5.5,
                 vy: (player.y - (boss.y + 35)) * 0.012,
-                life: 140
+                life: 160
             });
             sfx.playLaser();
             for (let i = 0; i < 8; i++) spawnDust(boss.x - 20, boss.y + 35, -2, (Math.random()-0.5)*3, '#ef4444', 4);
@@ -2921,7 +3231,7 @@ function updateBossPhysics() {
         }
     } else if (boss.state === 'retreat') {
         boss.y += (180 - boss.y) * 0.05;
-        boss.x += (2750 - boss.x) * 0.04;
+        boss.x += (8250 - boss.x) * 0.04;
         if (boss.stateTimer > 70) {
             boss.state = 'hover';
             boss.stateTimer = 0;
@@ -2940,17 +3250,25 @@ function updateBossPhysics() {
         if (!player.isDying && !player.isRespawning && player.invincibleTimer === 0) {
             if (checkOverlap(player.x, player.y, player.w, player.h, b.x - 12, b.y - 6, 24, 12)) {
                 boss.bullets.splice(i, 1);
-                if (player.hasHeart) {
-                    player.hasHeart = false;
-                    player.hurtTimer = 35;
-                    player.invincibleTimer = 90;
-                    player.vx = -player.facing * 3.6;
-                    player.vy = -5.8;
-                    sfx.playHurt();
-                    screenShake = 6;
-                    updateLivesHUD();
+                if (triggerPartnerShieldSave()) {
+                    // 伙伴替身护盾保命成功
                 } else {
-                    triggerPlayerDeath('hit');
+                    if (player.hp > 1) {
+                        player.hp--;
+                        player.hurtTimer = 35;
+                        player.invincibleTimer = 90;
+                        player.vx = -player.facing * 3.6;
+                        player.vy = -5.8;
+                        sfx.playHurt();
+                        screenShake = 6;
+                        player.comicText = '💥 OUCH!!';
+                        player.comicTimer = 40;
+                        updateLivesHUD();
+                    } else {
+                        player.hp = 0;
+                        updateLivesHUD();
+                        triggerPlayerDeath('hit');
+                    }
                 }
             }
         }
@@ -3003,17 +3321,25 @@ function updateBossPhysics() {
                     }, 1200);
                 }
             } else if (player.invincibleTimer === 0 && boss.hurtTimer === 0) {
-                if (player.hasHeart) {
-                    player.hasHeart = false;
-                    player.hurtTimer = 35;
-                    player.invincibleTimer = 90;
-                    player.vx = -player.facing * 4;
-                    player.vy = -6;
-                    sfx.playHurt();
-                    screenShake = 7;
-                    updateLivesHUD();
+                if (triggerPartnerShieldSave()) {
+                    // 伙伴替身护盾保命成功
                 } else {
-                    triggerPlayerDeath('hit');
+                    if (player.hp > 1) {
+                        player.hp--;
+                        player.hurtTimer = 35;
+                        player.invincibleTimer = 90;
+                        player.vx = -player.facing * 4;
+                        player.vy = -6;
+                        sfx.playHurt();
+                        screenShake = 7;
+                        player.comicText = '💥 OUCH!!';
+                        player.comicTimer = 40;
+                        updateLivesHUD();
+                    } else {
+                        player.hp = 0;
+                        updateLivesHUD();
+                        triggerPlayerDeath('hit');
+                    }
                 }
             }
         }
@@ -3394,10 +3720,20 @@ function updatePhysics() {
 
     player.onGround = false;
     if (player.vy < 0) {
-        if ((getTile(midLeftCol, newTopRow) > 0 && getTile(midLeftCol, newTopRow) !== 5) ||
-            (getTile(midRightCol, newTopRow) > 0 && getTile(midRightCol, newTopRow) !== 5)) {
+        const leftTile = getTile(midLeftCol, newTopRow);
+        const rightTile = getTile(midRightCol, newTopRow);
+        let hitCeiling = false;
+        if ((leftTile > 0 && leftTile !== 5) || (rightTile > 0 && rightTile !== 5)) {
             player.y = (newTopRow + 1) * TILE_SIZE;
             player.vy = 0;
+            hitCeiling = true;
+        }
+        // 马里奥式向上撞击砖块与【?】问号宝箱
+        if (hitCeiling) {
+            handleBlockHeadbutt(midLeftCol, newTopRow);
+            if (midRightCol !== midLeftCol) {
+                handleBlockHeadbutt(midRightCol, newTopRow);
+            }
         }
     } else if (player.vy >= 0) {
         // 落地检测：从腰部向下逐行扫描第一层碰触的地面表面，彻底杜绝穿模陷入地下泥层（row 12/13）
@@ -3471,14 +3807,103 @@ function updatePhysics() {
     }
 }
 
-function updateLivesHUD() {
-    const box = document.getElementById('hud-hearts-box');
-    box.innerHTML = '';
-    for (let i = 0; i < player.lives; i++) {
-        const h = document.createElement('div');
-        h.className = 'hud-heart';
-        box.appendChild(h);
+// 马里奥经典顶头击碎岩石与开启【?】神秘问号箱
+function handleBlockHeadbutt(c, r) {
+    const tile = getTile(c, r);
+    if (tile === 4) {
+        // Tile 4: 裂纹岩石砖块 -> 顶碎！
+        setTile(c, r, 0);
+        sfx.playShatter();
+        screenShake = 6;
+        player.score += 50;
+        for (let i = 0; i < 12; i++) {
+            spawnDust(
+                c * TILE_SIZE + 20,
+                r * TILE_SIZE + 20,
+                (Math.random() - 0.5) * 6,
+                -Math.random() * 5 - 1.5,
+                '#94a3b8',
+                5
+            );
+        }
+        // 45% 几率顶出金胡萝卜
+        if (Math.random() < 0.45) {
+            entities.push({
+                type: 'carrot',
+                x: c * TILE_SIZE + 8,
+                y: (r - 1) * TILE_SIZE + 4,
+                collected: false
+            });
+            sfx.playCarrot();
+        }
+    } else if (tile === 7) {
+        // Tile 7: 经典马里奥【?】问号神秘宝箱 -> 顶出奖励并变为 Tile 8 (金属实心块)
+        setTile(c, r, 8);
+        sfx.playCarrot();
+        screenShake = 5;
+        player.score += 200;
+        for (let i = 0; i < 14; i++) {
+            spawnDust(c * TILE_SIZE + 20, r * TILE_SIZE + 20, (Math.random() - 0.5) * 5, -3, '#fde047', 5);
+        }
+        const rand = Math.random();
+        if (rand < 0.35) {
+            entities.push({
+                type: 'balloon',
+                x: c * TILE_SIZE,
+                y: (r - 1) * TILE_SIZE - 10,
+                vy: -0.6,
+                originY: (r - 2) * TILE_SIZE,
+                content: (Math.random() < 0.5 ? 'star' : 'heart')
+            });
+            sfx.playMorph();
+            showAlertBanner('🎁 发现神秘道具气球！', 2000);
+        } else {
+            entities.push({
+                type: 'carrot',
+                x: c * TILE_SIZE + 8,
+                y: (r - 1) * TILE_SIZE + 4,
+                collected: false
+            });
+        }
     }
+}
+
+function updateLivesHUD() {
+    // 1. 独立生命条数 LIFE: 🐰 × 3
+    const livesEl = document.getElementById('hud-lives');
+    if (livesEl) {
+        livesEl.innerText = `🐰 × ${player.lives}`;
+    }
+
+    // 2. 独立生命点数/血量 HP: 💖 💖 💖
+    const box = document.getElementById('hud-hearts-box');
+    if (box) {
+        box.innerHTML = '';
+        const maxHearts = player.maxHp || 3;
+        const curHearts = Math.max(0, player.hp !== undefined ? player.hp : 3);
+        for (let i = 0; i < maxHearts; i++) {
+            const h = document.createElement('div');
+            h.className = 'hud-heart';
+            if (i >= curHearts) {
+                h.style.opacity = '0.22';
+                h.style.filter = 'grayscale(100%)';
+            }
+            box.appendChild(h);
+        }
+    }
+
+    // 3. 升级角色保命机制：替身护盾徽章
+    const shieldBadge = document.getElementById('hud-shield-badge');
+    if (shieldBadge) {
+        if (player.character !== CHARACTERS.BUSTER) {
+            shieldBadge.style.display = 'inline-block';
+            const partnerNames = ['', ' (普拉基)', ' (迪兹)', ' (福宝)'];
+            shieldBadge.innerText = `🛡️ 替身护盾${partnerNames[player.character] || ''}`;
+        } else {
+            shieldBadge.style.display = 'none';
+        }
+    }
+
     const goCarrots = document.getElementById('go-carrots');
     const goScore = document.getElementById('go-score');
     if (goCarrots) goCarrots.innerText = player.carrots;
@@ -3487,6 +3912,39 @@ function updateLivesHUD() {
 
 function updateEntities() {
     entities.forEach(ent => {
+        // 中途存档钟 (Checkpoint Bell)
+        if (ent.type === 'checkpoint' && !ent.reached) {
+            if (checkOverlap(player.x, player.y, player.w, player.h, ent.x, ent.y, 40, 80)) {
+                ent.reached = true;
+                player.checkpointX = ent.x;
+                player.checkpointY = ent.y;
+                player.lastSafeX = ent.x;
+                player.lastSafeY = ent.y;
+                sfx.playBell();
+                screenShake = 6;
+                showAlertBanner(`🔔 达成中途存档点 ${ent.id || ''}！(CHECKPOINT)`, 2500);
+                for (let i = 0; i < 30; i++) {
+                    spawnDust(ent.x + 20, ent.y + 20, (Math.random()-0.5)*7, (Math.random()-0.5)*7, '#fde047', 5);
+                }
+            }
+        }
+
+        // 浮动移动平台 (Moving Platform)
+        if (ent.type === 'platform') {
+            ent.x += ent.vx;
+            if (ent.x < ent.minX || ent.x > ent.maxX) ent.vx *= -1;
+            // 站在移动平台上同步跟随
+            const playerFeet = player.y + player.h;
+            const prevFeet = playerFeet - player.vy;
+            if (player.vy >= 0 && prevFeet <= ent.y + 10 && playerFeet >= ent.y - 4 &&
+                player.x + player.w - 6 > ent.x && player.x + 6 < ent.x + ent.w) {
+                player.y = ent.y - player.h;
+                player.vy = 0;
+                player.onGround = true;
+                player.x += ent.vx;
+            }
+        }
+
         if (ent.type === 'balloon') {
             ent.y += ent.vy;
             if (Math.abs(ent.y - ent.originY) > 12) ent.vy *= -1;
@@ -3496,10 +3954,18 @@ function updateEntities() {
                 screenShake = 4;
                 for (let i = 0; i < 16; i++) spawnDust(ent.x + 20, ent.y + 20, (Math.random()-0.5)*4, (Math.random()-0.5)*4, '#fde047', 5);
                 if (ent.content === 'star') {
+                    // 升级到下一个伙伴英雄
                     player.character = (player.character + 1) % 4;
+                    if (player.character === 0) player.character = 1;
                     switchChar(player.character);
+                    player.comicText = '🛡️ 伙伴合体!!';
+                    player.comicTimer = 60;
                 } else if (ent.content === 'heart') {
-                    player.lives = Math.min(5, player.lives + 1);
+                    if (player.hp < player.maxHp) {
+                        player.hp = Math.min(player.maxHp, player.hp + 1);
+                    } else {
+                        player.lives = Math.min(5, player.lives + 1);
+                    }
                     updateLivesHUD();
                 }
             }
@@ -3557,18 +4023,26 @@ function updateEntities() {
                     player.vy = (keys.jump || keys.up) ? -12.5 : -8.5;
                     for (let i = 0; i < 16; i++) spawnDust(ent.x + ent.w/2, ent.y + ent.h/2, (Math.random()-0.5)*4, -2, '#ffffff', 5);
                 } else if (player.invincibleTimer === 0 && !player.isDying && !player.isRespawning) {
-                    // 受伤击退反应
-                    if (player.hasHeart) {
-                        player.hasHeart = false;
-                        player.hurtTimer = 35;
-                        player.invincibleTimer = 90;
-                        player.vx = -player.facing * 3.6;
-                        player.vy = -5.8;
-                        sfx.playHurt();
-                        screenShake = 6;
-                        updateLivesHUD();
+                    if (triggerPartnerShieldSave()) {
+                        // 伙伴替身保命机制触发！
                     } else {
-                        triggerPlayerDeath('hit');
+                        // 初始巴斯特兔受创
+                        if (player.hp > 1) {
+                            player.hp--;
+                            player.hurtTimer = 35;
+                            player.invincibleTimer = 90;
+                            player.vx = -player.facing * 3.6;
+                            player.vy = -5.8;
+                            sfx.playHurt();
+                            screenShake = 6;
+                            player.comicText = '💥 OUCH!!';
+                            player.comicTimer = 40;
+                            updateLivesHUD();
+                        } else {
+                            player.hp = 0;
+                            updateLivesHUD();
+                            triggerPlayerDeath('hit');
+                        }
                     }
                 }
             }
@@ -3853,6 +4327,48 @@ function render() {
                 ctx.strokeStyle = '#38bdf8';
                 ctx.lineWidth = 1.5;
                 ctx.stroke();
+            } else if (tile === 7) {
+                // 经典马里奥风格【?】神秘问号金块
+                const g = ctx.createLinearGradient(px, py, px, py + TILE_SIZE);
+                g.addColorStop(0, '#fef08a');
+                g.addColorStop(0.5, '#f59e0b');
+                g.addColorStop(1, '#d97706');
+                ctx.fillStyle = g;
+                ctx.fillRect(px + 1, py + 1, TILE_SIZE - 2, TILE_SIZE - 2);
+                ctx.strokeStyle = '#78350f';
+                ctx.lineWidth = 2;
+                ctx.strokeRect(px + 1, py + 1, TILE_SIZE - 2, TILE_SIZE - 2);
+
+                // 四角铆钉
+                ctx.fillStyle = '#78350f';
+                ctx.fillRect(px + 3, py + 3, 3, 3);
+                ctx.fillRect(px + TILE_SIZE - 6, py + 3, 3, 3);
+                ctx.fillRect(px + 3, py + TILE_SIZE - 6, 3, 3);
+                ctx.fillRect(px + TILE_SIZE - 6, py + TILE_SIZE - 6, 3, 3);
+
+                // 中央发光问号
+                ctx.fillStyle = '#ffffff';
+                ctx.font = 'bold 22px -apple-system, sans-serif';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.shadowColor = 'rgba(0,0,0,0.5)';
+                ctx.shadowBlur = 4;
+                ctx.fillText('?', px + TILE_SIZE / 2, py + TILE_SIZE / 2 + 1);
+                ctx.shadowBlur = 0;
+            } else if (tile === 8) {
+                // 顶过后的金属实心固态块 (Spent Block)
+                ctx.fillStyle = '#64748b';
+                ctx.fillRect(px + 1, py + 1, TILE_SIZE - 2, TILE_SIZE - 2);
+                ctx.fillStyle = '#475569';
+                ctx.fillRect(px + 3, py + 3, TILE_SIZE - 6, TILE_SIZE - 6);
+                ctx.strokeStyle = '#334155';
+                ctx.lineWidth = 2;
+                ctx.strokeRect(px + 1, py + 1, TILE_SIZE - 2, TILE_SIZE - 2);
+                ctx.fillStyle = '#1e293b';
+                ctx.fillRect(px + 4, py + 4, 3, 3);
+                ctx.fillRect(px + TILE_SIZE - 7, py + 4, 3, 3);
+                ctx.fillRect(px + 4, py + TILE_SIZE - 7, 3, 3);
+                ctx.fillRect(px + TILE_SIZE - 7, py + TILE_SIZE - 7, 3, 3);
             }
         }
     }
@@ -3910,6 +4426,77 @@ function render() {
             ctx.moveTo(bx, by + 18);
             ctx.lineTo(bx - 2, by + 32);
             ctx.stroke();
+        }
+
+        // 绘制中途存档里程钟 (Checkpoint Bell)
+        if (ent.type === 'checkpoint') {
+            const cx = ent.x;
+            const cy = ent.y;
+            // 柱身
+            ctx.fillStyle = '#b45309';
+            ctx.fillRect(cx + 16, cy + 18, 8, 62);
+            // 顶端横梁
+            ctx.fillStyle = '#92400e';
+            ctx.fillRect(cx + 8, cy + 14, 24, 6);
+            // 铜钟
+            ctx.save();
+            ctx.translate(cx + 20, cy + 24);
+            if (ent.reached) {
+                ctx.rotate(Math.sin(Date.now() * 0.01) * 0.2);
+            }
+            const bg = ctx.createLinearGradient(-10, -6, 10, 14);
+            if (ent.reached) {
+                bg.addColorStop(0, '#fef08a');
+                bg.addColorStop(0.5, '#f59e0b');
+                bg.addColorStop(1, '#ca8a04');
+            } else {
+                bg.addColorStop(0, '#94a3b8');
+                bg.addColorStop(1, '#475569');
+            }
+            ctx.fillStyle = bg;
+            ctx.beginPath();
+            ctx.arc(0, 0, 8, Math.PI, 0);
+            ctx.lineTo(10, 14);
+            ctx.lineTo(-10, 14);
+            ctx.closePath();
+            ctx.fill();
+            ctx.strokeStyle = '#1e293b';
+            ctx.lineWidth = 1.2;
+            ctx.stroke();
+            ctx.restore();
+            // 存档指示灯/锦旗
+            ctx.fillStyle = ent.reached ? '#22c55e' : '#64748b';
+            ctx.beginPath();
+            ctx.arc(cx + 20, cy + 8, 5, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.strokeStyle = '#fff';
+            ctx.lineWidth = 1;
+            ctx.stroke();
+        }
+
+        // 绘制浮动移动平台 (Moving Platform)
+        if (ent.type === 'platform') {
+            const px = ent.x;
+            const py = ent.y;
+            const pw = ent.w;
+            const ph = ent.h;
+            const pg = ctx.createLinearGradient(px, py, px, py + ph);
+            pg.addColorStop(0, '#38bdf8');
+            pg.addColorStop(0.5, '#0284c7');
+            pg.addColorStop(1, '#0369a1');
+            ctx.fillStyle = pg;
+            ctx.fillRect(px, py, pw, ph);
+            ctx.strokeStyle = '#e0f2fe';
+            ctx.lineWidth = 1.5;
+            ctx.strokeRect(px, py, pw, ph);
+
+            // 科技条纹与警示箭头
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(px + 4, py + 2, pw - 8, 3);
+            ctx.fillStyle = '#0c4a6e';
+            for (let bx = px + 12; bx < px + pw - 12; bx += 18) {
+                ctx.fillRect(bx, py + 7, 8, 4);
+            }
         }
 
         // 绘制关底金色 Acme Acres 胜利大钟与旗帜
