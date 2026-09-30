@@ -2052,6 +2052,9 @@ const MAP_ROWS = 14;
 const tileMap = new Array(MAP_ROWS * MAP_COLS).fill(0);
 
 let currentStageIndex = 0;
+let cameraX = 0;
+let screenShake = 0;
+let alertTimer = 0;
 
 // 关底 BOSS (第 4 关激活：DUCK VADER 达克·维德)
 const boss = {
@@ -2776,8 +2779,10 @@ function updateBossPhysics() {
 loadStage(0);
 
 // 关卡弹窗与死亡弹窗按钮绑定
-document.getElementById('btn-replay').onclick = retryCurrentStage;
-document.getElementById('btn-continue').onclick = nextStage;
+const btnReplay = document.getElementById('btn-replay');
+if (btnReplay) btnReplay.onclick = retryCurrentStage;
+const btnContinue = document.getElementById('btn-continue');
+if (btnContinue) btnContinue.onclick = nextStage;
 const btnRevive = document.getElementById('btn-go-revive');
 if (btnRevive) {
     btnRevive.onclick = () => {
@@ -2790,10 +2795,6 @@ const btnRestart = document.getElementById('btn-go-restart');
 if (btnRestart) {
     btnRestart.onclick = restartGameFromStage1;
 }
-
-let cameraX = 0;
-let screenShake = 0;
-let alertTimer = 0;
 
 function updatePhysics() {
     pollGamepad();
