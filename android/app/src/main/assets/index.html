@@ -655,6 +655,60 @@
             margin-bottom: 18px;
         }
 
+        /* 角色受创/阵亡仪式感弹窗 (原地复活 & 剩余生命提醒 & 角色重置) */
+        #death-modal {
+            display: none;
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 36;
+            background: rgba(15, 23, 42, 0.96);
+            border: 3px solid #f59e0b;
+            border-radius: 20px;
+            padding: 22px 36px;
+            text-align: center;
+            box-shadow: 0 0 60px rgba(245, 158, 11, 0.65);
+            backdrop-filter: blur(12px);
+            max-width: 90vw;
+            box-sizing: border-box;
+            animation: deathPop 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+        @keyframes deathPop {
+            0% { transform: translate(-50%, -50%) scale(0.85); opacity: 0; }
+            100% { transform: translate(-50%, -50%) scale(1); opacity: 1; }
+        }
+        .death-title {
+            font-size: 26px;
+            font-weight: 900;
+            color: #f59e0b;
+            text-shadow: 0 0 16px rgba(245, 158, 11, 0.8);
+            margin-bottom: 6px;
+        }
+        .death-lives-badge {
+            display: inline-block;
+            background: rgba(239, 68, 68, 0.22);
+            border: 1.5px solid rgba(239, 68, 68, 0.6);
+            border-radius: 12px;
+            padding: 7px 18px;
+            margin: 8px 0 10px 0;
+            font-size: 19px;
+            font-weight: bold;
+            color: #fca5a5;
+            box-shadow: 0 0 15px rgba(239, 68, 68, 0.3);
+        }
+        .death-hero-reset {
+            font-size: 14px;
+            color: #38bdf8;
+            font-weight: bold;
+            margin-bottom: 6px;
+        }
+        .death-info {
+            font-size: 13px;
+            color: #94a3b8;
+            margin-bottom: 16px;
+        }
+
         /* 移动端竖屏状态激活横屏引导 */
         @media screen and (orientation: portrait) and (max-width: 768px) {
             #rotate-screen-prompt {
@@ -767,6 +821,28 @@
                 bottom: 8px;
                 right: 94px;
             }
+            #death-modal, #game-over-modal, #stage-clear-modal {
+                padding: 14px 20px !important;
+                max-height: 90vh !important;
+                border-radius: 14px !important;
+            }
+            .death-title, .go-title {
+                font-size: 20px !important;
+                margin-bottom: 4px !important;
+            }
+            .death-lives-badge {
+                padding: 4px 12px !important;
+                font-size: 15px !important;
+                margin: 4px 0 6px 0 !important;
+            }
+            .death-hero-reset {
+                font-size: 12px !important;
+                margin-bottom: 4px !important;
+            }
+            .death-info {
+                font-size: 11px !important;
+                margin-bottom: 10px !important;
+            }
         }
     </style>
 </head>
@@ -852,17 +928,39 @@
             </div>
         </div>
 
-        <!-- 游戏结束 Game Over 仪式弹窗 -->
+        <!-- 角色受创/阵亡仪式感弹窗 (原地复活 & 剩余生命提醒 & 角色重置) -->
+        <div id="death-modal">
+            <div class="death-title" id="death-title">💥 哎呀！巴斯特受创倒地！</div>
+            <div class="death-lives-badge" id="death-lives-box">
+                💖 剩余生命: <span id="death-remaining-lives" style="color:#ef4444; font-size:24px; font-weight:900;">2</span> 条命
+            </div>
+            <div class="death-hero-reset" id="death-hero-notice">
+                🔄 已重置为初始英雄：🐰 巴斯特兔 (Buster Bunny)
+            </div>
+            <div class="death-info" id="death-location-info">
+                📍 救护就绪：将在原地安全落脚点满血复活！
+            </div>
+            <div style="display:flex; gap:10px; justify-content:center; flex-wrap:wrap;">
+                <button id="btn-respawn-now" class="btn" style="background:linear-gradient(135deg, #10b981, #059669); border-color:#34d399; padding:8px 22px; font-size:14px; font-weight:900; box-shadow:0 0 18px rgba(16,185,129,0.6);">
+                    ⚡ 原地满血复活 (<span id="respawn-countdown">3</span>s)
+                </button>
+                <button id="btn-restart-stage" class="btn" style="background:linear-gradient(135deg, #64748b, #475569); border-color:#94a3b8; padding:8px 16px; font-size:13px;">
+                    🔄 重新挑战本关
+                </button>
+            </div>
+        </div>
+
+        <!-- 游戏结束 Game Over 仪式弹窗 (所有生命耗尽时从头开始) -->
         <div id="game-over-modal">
             <div class="go-title">💔 GAME OVER</div>
-            <div class="go-subtitle">巴斯特兔力竭倒地... 不要放弃冒险！</div>
-            <div style="font-size:16px; color:#f8fafc; line-height:1.8; margin-bottom:20px;">
+            <div class="go-subtitle">所有生命已全部耗尽！不要气馁，重振旗鼓！</div>
+            <div style="font-size:15px; color:#f8fafc; line-height:1.8; margin-bottom:18px;">
                 🥕 累计胡萝卜: <span id="go-carrots" style="color:#fb923c; font-weight:bold; font-size:20px;">0</span><br>
                 ⭐ 累计总积分: <span id="go-score" style="color:#fde047; font-weight:bold; font-size:20px;">0</span>
             </div>
-            <div style="display:flex; gap:12px; justify-content:center;">
-                <button id="btn-go-revive" class="btn" style="background:linear-gradient(135deg, #10b981, #059669); border-color:#34d399; padding:10px 22px; font-size:15px;">💖 满血复活再战 (+3命)</button>
-                <button id="btn-go-restart" class="btn" style="background:linear-gradient(135deg, #64748b, #475569); border-color:#94a3b8; padding:10px 22px; font-size:15px;">🔄 从第一关重新开始</button>
+            <div style="display:flex; gap:12px; justify-content:center; flex-wrap:wrap;">
+                <button id="btn-go-restart" class="btn" style="background:linear-gradient(135deg, #3b82f6, #1d4ed8); border-color:#60a5fa; padding:10px 24px; font-size:15px; font-weight:900; box-shadow:0 0 20px rgba(59,130,246,0.6);">🔄 从头开始 (从第 1 关重新开始)</button>
+                <button id="btn-go-revive" class="btn" style="background:linear-gradient(135deg, #10b981, #059669); border-color:#34d399; padding:10px 20px; font-size:14px;">💖 投币接关 (+3条命原地复活)</button>
             </div>
         </div>
 
@@ -2055,6 +2153,8 @@ let currentStageIndex = 0;
 let cameraX = 0;
 let screenShake = 0;
 let alertTimer = 0;
+let deathCountdownTimer = null;
+let deathCountdownSeconds = 3;
 
 // 关底 BOSS (第 4 关激活：DUCK VADER 达克·维德)
 const boss = {
@@ -2427,9 +2527,24 @@ function loadStage(stageIdx) {
     document.getElementById('stage-clear-modal').style.display = 'none';
     const goModal = document.getElementById('game-over-modal');
     if (goModal) goModal.style.display = 'none';
+    const deathModal = document.getElementById('death-modal');
+    if (deathModal) deathModal.style.display = 'none';
+
+    if (deathCountdownTimer) {
+        clearInterval(deathCountdownTimer);
+        deathCountdownTimer = null;
+    }
 
     player.checkpointX = 80;
     player.checkpointY = 368;
+    player.lastSafeX = 80;
+    player.lastSafeY = 368;
+    player.deathX = 80;
+    player.deathY = 368;
+    player.respawnTargetX = 80;
+    player.respawnTargetY = 368;
+    player.inDeathCeremony = false;
+
     player.x = 80;
     player.y = 368;
     player.vx = 0;
@@ -2471,6 +2586,7 @@ function nextStage() {
 }
 
 function retryCurrentStage() {
+    switchChar(CHARACTERS.BUSTER);
     loadStage(currentStageIndex);
 }
 
@@ -2478,8 +2594,10 @@ function restartGameFromStage1() {
     player.lives = 3;
     player.score = 0;
     player.carrots = 0;
+    player.hasHeart = true;
     document.getElementById('hud-score').innerText = '000000';
     document.getElementById('hud-carrots').innerText = '0';
+    switchChar(CHARACTERS.BUSTER);
     loadStage(0);
 }
 
@@ -2520,6 +2638,13 @@ const player = {
     deathRot: 0,
     isRespawning: false,
     respawnTimer: 0,
+    inDeathCeremony: false,
+    lastSafeX: 80,
+    lastSafeY: 368,
+    deathX: 80,
+    deathY: 368,
+    respawnTargetX: 80,
+    respawnTargetY: 368,
     checkpointX: 80,
     checkpointY: 368,
     comicText: '',
@@ -2539,7 +2664,7 @@ let entities = [];
 
 // 死亡仪式感：受击弹射升空、旋转抛物线、漫画提示气泡、惨叫哀鸣
 function triggerPlayerDeath(type = 'hit') {
-    if (player.isDying || player.isRespawning) return;
+    if (player.isDying || player.isRespawning || player.inDeathCeremony) return;
     player.isDying = true;
     player.deathTimer = 110;
     player.deathType = type;
@@ -2560,6 +2685,24 @@ function triggerPlayerDeath(type = 'hit') {
     sfx.playDeath();
     screenShake = 12;
 
+    // 记录死亡位置并根据死亡类型精确定位原地就近安全复活点
+    player.deathX = Math.floor(player.x);
+    player.deathY = Math.floor(player.y);
+
+    if (type === 'pit') {
+        // 跌落深渊：退回坠崖前最后的可靠坚固平台内部，避免重复掉落
+        let safeX = player.lastSafeX || 80;
+        if (player.facing > 0) safeX = Math.max(60, safeX - 24);
+        else safeX = Math.min(MAP_COLS * TILE_SIZE - 60, safeX + 24);
+        player.respawnTargetX = safeX;
+        player.respawnTargetY = player.lastSafeY || 368;
+    } else {
+        // 敌人碰撞或子弹伤害：直接在受创地点原地满血复活
+        player.respawnTargetX = Math.max(60, Math.min(MAP_COLS * TILE_SIZE - 60, player.deathX));
+        player.respawnTargetY = (player.deathY > CANVAS_H - 100) ? (player.lastSafeY || 368) : Math.max(40, player.deathY);
+    }
+
+    // 扣除生命并更新 HUD
     player.lives = Math.max(0, player.lives - 1);
     updateLivesHUD();
 }
@@ -2573,12 +2716,13 @@ function updateDeathPhysics() {
     if (player.comicTimer > 0) player.comicTimer--;
 
     if (Math.random() < 0.35) {
-        spawnDust(player.x + 20, player.y + 20, (Math.random()-0.5)*3, -1, '#fde047', 4);
+        spawnDust(player.x + 20, player.y + 20, (Math.random() - 0.5) * 3, -1, '#fde047', 4);
     }
 
     if (player.deathTimer <= 0 || player.y > CANVAS_H + 120) {
         player.isDying = false;
         if (player.lives <= 0) {
+            // 所有生命耗尽：呼出游戏结束 Game Over 仪式弹窗，等待从头开始
             const goModal = document.getElementById('game-over-modal');
             if (goModal) {
                 goModal.style.display = 'block';
@@ -2588,8 +2732,109 @@ function updateDeathPhysics() {
                 if (goScore) goScore.innerText = player.score;
             }
         } else {
-            triggerRespawn();
+            // 尚有剩余生命：触发原地复活仪式感弹窗与英雄重置
+            showDeathCeremonyModal();
         }
+    }
+}
+
+// 死亡仪式感弹窗控制：展示剩余生命、重置初始角色、原地复活倒计时
+function showDeathCeremonyModal() {
+    // 仪式感第 1 步：死亡之后切回初始英雄 🐰 巴斯特兔 (Buster Bunny)
+    switchChar(CHARACTERS.BUSTER);
+
+    player.inDeathCeremony = true;
+    player.isDying = false;
+    player.isRespawning = false;
+    player.x = player.respawnTargetX;
+    player.y = player.respawnTargetY;
+    player.vx = 0;
+    player.vy = 0;
+    player.onGround = true;
+    player.invincibleTimer = 300; // 仪式期间维持黄金护佑
+
+    // 镜头直接跟随到复活地点
+    const targetCamX = player.x - CANVAS_W / 2 + 60;
+    cameraX = Math.max(0, Math.min(MAP_COLS * TILE_SIZE - CANVAS_W, targetCamX));
+
+    // 填充弹窗数据
+    const modal = document.getElementById('death-modal');
+    const titleEl = document.getElementById('death-title');
+    const livesEl = document.getElementById('death-remaining-lives');
+    const countdownEl = document.getElementById('respawn-countdown');
+    const locEl = document.getElementById('death-location-info');
+
+    if (titleEl) {
+        titleEl.innerText = (player.deathType === 'pit') ? '💫 哎呀！跌落深崖！' : '💥 哎呀！巴斯特受创倒地！';
+    }
+    if (livesEl) {
+        livesEl.innerText = player.lives;
+    }
+    if (locEl) {
+        locEl.innerText = (player.deathType === 'pit')
+            ? '📍 救护就绪：已回退到悬崖安全落脚点满血复活！'
+            : '📍 救护就绪：将在死亡地点原地满血复活！';
+    }
+
+    if (deathCountdownTimer) {
+        clearInterval(deathCountdownTimer);
+        deathCountdownTimer = null;
+    }
+    deathCountdownSeconds = 3;
+    if (countdownEl) countdownEl.innerText = deathCountdownSeconds;
+    if (modal) modal.style.display = 'block';
+
+    deathCountdownTimer = setInterval(() => {
+        deathCountdownSeconds--;
+        if (countdownEl) countdownEl.innerText = deathCountdownSeconds;
+        if (deathCountdownSeconds <= 0) {
+            clearInterval(deathCountdownTimer);
+            deathCountdownTimer = null;
+            executeInPlaceRevival();
+        }
+    }, 1000);
+}
+
+// 原地满血复活执行：初始角色、满血复活、3秒黄金护盾
+function executeInPlaceRevival() {
+    if (deathCountdownTimer) {
+        clearInterval(deathCountdownTimer);
+        deathCountdownTimer = null;
+    }
+    const modal = document.getElementById('death-modal');
+    if (modal) modal.style.display = 'none';
+
+    player.inDeathCeremony = false;
+    player.isDying = false;
+    player.isRespawning = false;
+
+    // 死亡之后从初始角色开始
+    switchChar(CHARACTERS.BUSTER);
+
+    player.hasHeart = true;
+    player.x = player.respawnTargetX;
+    player.y = player.respawnTargetY;
+    player.vx = 0;
+    player.vy = 0;
+    player.onGround = true;
+    player.invincibleTimer = 180; // 3 秒黄金无敌护盾
+    player.comicText = '';
+    player.deathRot = 0;
+    player.landSquash = 1.0;
+
+    const targetCamX = player.x - CANVAS_W / 2 + 60;
+    cameraX = Math.max(0, Math.min(MAP_COLS * TILE_SIZE - CANVAS_W, targetCamX));
+
+    sfx.playRespawn();
+    for (let i = 0; i < 28; i++) {
+        spawnDust(
+            player.x + 19 + (Math.random() - 0.5) * 26,
+            player.y + player.h - 10 + (Math.random() - 0.5) * 20,
+            (Math.random() - 0.5) * 7,
+            -Math.random() * 5 - 1.2,
+            ['#fde047', '#f59e0b', '#38bdf8', '#4ade80', '#ffffff'][Math.floor(Math.random() * 5)],
+            6
+        );
     }
 }
 
@@ -2783,12 +3028,38 @@ const btnReplay = document.getElementById('btn-replay');
 if (btnReplay) btnReplay.onclick = retryCurrentStage;
 const btnContinue = document.getElementById('btn-continue');
 if (btnContinue) btnContinue.onclick = nextStage;
+
+const btnRespawnNow = document.getElementById('btn-respawn-now');
+if (btnRespawnNow) {
+    btnRespawnNow.onclick = (e) => {
+        e.preventDefault();
+        executeInPlaceRevival();
+    };
+}
+
+const btnRestartStage = document.getElementById('btn-restart-stage');
+if (btnRestartStage) {
+    btnRestartStage.onclick = (e) => {
+        e.preventDefault();
+        if (deathCountdownTimer) {
+            clearInterval(deathCountdownTimer);
+            deathCountdownTimer = null;
+        }
+        const modal = document.getElementById('death-modal');
+        if (modal) modal.style.display = 'none';
+        player.inDeathCeremony = false;
+        retryCurrentStage();
+    };
+}
+
 const btnRevive = document.getElementById('btn-go-revive');
 if (btnRevive) {
     btnRevive.onclick = () => {
+        const goModal = document.getElementById('game-over-modal');
+        if (goModal) goModal.style.display = 'none';
         player.lives = 3;
         updateLivesHUD();
-        retryCurrentStage();
+        executeInPlaceRevival();
     };
 }
 const btnRestart = document.getElementById('btn-go-restart');
@@ -2802,6 +3073,17 @@ function updatePhysics() {
     if (player.animTimer > 5) {
         player.animTimer = 0;
         player.animFrame = (player.animFrame + 1) % 4;
+    }
+
+    if (player.inDeathCeremony) {
+        // 死亡仪式弹窗展示中，冻结常规物理与按键，更新粒子特效
+        for (let i = particles.length - 1; i >= 0; i--) {
+            const p = particles[i];
+            p.x += p.vx; p.y += p.vy;
+            p.life--;
+            if (p.life <= 0) particles.splice(i, 1);
+        }
+        return;
     }
 
     if (player.isDying) {
@@ -3150,19 +3432,23 @@ function updatePhysics() {
         }
     }
 
-    // 自动记录可靠安全地面存档点（避开深渊边缘与特殊陷阱）
-    if (player.onGround && !player.isSliding && !player.isCrouching) {
+    // 实时记录可靠安全地面坐标与关卡存档点（避开深渊边缘与特殊陷阱）
+    if (player.onGround && !player.isSliding && !player.isCrouching && !player.isDying && !player.isRespawning && !player.inDeathCeremony) {
         const col = Math.floor((player.x + player.w / 2) / TILE_SIZE);
         const row = Math.floor((player.y + player.h + 2) / TILE_SIZE);
         const belowTile = getTile(col, row);
-        if ((belowTile === 1 || belowTile === 2 || belowTile === 3) && (player.x > player.checkpointX + 240)) {
-            player.checkpointX = Math.floor(player.x);
-            player.checkpointY = Math.floor(player.y);
+        if (belowTile >= 1 && belowTile <= 4) {
+            player.lastSafeX = Math.floor(player.x);
+            player.lastSafeY = Math.floor(player.y);
+            if (player.x > player.checkpointX + 240) {
+                player.checkpointX = Math.floor(player.x);
+                player.checkpointY = Math.floor(player.y);
+            }
         }
     }
 
     // 坠入深渊触发死亡仪式感
-    if (player.y > CANVAS_H + 40 && !player.isDying && !player.isRespawning) {
+    if (player.y > CANVAS_H + 40 && !player.isDying && !player.isRespawning && !player.inDeathCeremony) {
         triggerPlayerDeath('pit');
     }
 
@@ -3805,7 +4091,7 @@ function render() {
     }
 
     // 6. 核心角色渲染：支持死亡旋转、降落伞重生、黄金护盾与漫画提示泡泡
-    if (player.invincibleTimer % 4 < 2 || player.isRespawning) {
+    if (player.inDeathCeremony || player.invincibleTimer % 4 < 2 || player.isRespawning) {
         ctx.save();
         const px = Math.floor(player.x + player.w / 2);
         const py = Math.floor(player.y + player.h);
