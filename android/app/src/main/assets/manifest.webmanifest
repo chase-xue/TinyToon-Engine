@@ -1,0 +1,23 @@
+{
+  "name": "兔宝宝大冒险 (Tiny Toon Adventures)",
+  "short_name": "TinyToon",
+  "description": "正统华纳动画手绘级 2D 横版动作重制版，支持横屏全屏、手机触控与手柄",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "fullscreen",
+  "orientation": "landscape",
+  "theme_color": "#090c15",
+  "background_color": "#090c15",
+  "icons": [
+    {
+      "src": "assets/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "assets/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

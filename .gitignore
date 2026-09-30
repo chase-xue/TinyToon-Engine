@@ -30,3 +30,11 @@ npm-debug.log*
 *.pem
 *.key
 credentials.json
+
+# Android Build Outputs & Gradle Cache
+android/.gradle/
+android/app/build/
+android/build/
+android/local.properties
+dist/
+*.apk
