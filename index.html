@@ -717,7 +717,8 @@
         }
 
         /* 移动端横屏沉浸式全屏自适应 (Mobile Landscape Fullscreen Mode) */
-        @media screen and (orientation: landscape) and (max-height: 600px), screen and (max-width: 980px) and (orientation: landscape) {
+        /* 移动端横屏沉浸式全屏自适应 (Mobile Landscape Fullscreen Mode) & 网页全屏 */
+        @media screen and (orientation: landscape) and (max-height: 720px), screen and (max-width: 1024px) and (orientation: landscape) {
             html, body {
                 width: 100vw;
                 height: 100vh;
@@ -740,21 +741,55 @@
                 border: none !important;
                 border-radius: 0 !important;
                 box-shadow: none !important;
-                display: flex !important;
-                align-items: center !important;
-                justify-content: center !important;
+                display: block !important;
                 background: #000 !important;
+                margin: 0 !important;
+                padding: 0 !important;
             }
             canvas {
-                width: 100% !important;
-                height: 100% !important;
-                object-fit: contain !important;
+                width: 100vw !important;
+                height: 100vh !important;
+                object-fit: fill !important;
                 max-width: 100vw !important;
                 max-height: 100vh !important;
+                display: block !important;
             }
             #char-badge {
                 display: none !important;
             }
+        }
+
+        :fullscreen #game-wrapper, :-webkit-full-screen #game-wrapper {
+            position: fixed !important;
+            top: 0 !important;
+            left: 0 !important;
+            width: 100vw !important;
+            height: 100vh !important;
+            max-width: 100vw !important;
+            max-height: 100vh !important;
+            border: none !important;
+            border-radius: 0 !important;
+            box-shadow: none !important;
+            display: block !important;
+            background: #000 !important;
+            margin: 0 !important;
+            padding: 0 !important;
+        }
+        :fullscreen canvas, :-webkit-full-screen canvas {
+            width: 100vw !important;
+            height: 100vh !important;
+            object-fit: fill !important;
+            max-width: 100vw !important;
+            max-height: 100vh !important;
+            display: block !important;
+        }
+        :fullscreen header, :-webkit-full-screen header,
+        :fullscreen .toolbar, :-webkit-full-screen .toolbar,
+        :fullscreen #controls-hint, :-webkit-full-screen #controls-hint {
+            display: none !important;
+        }
+
+        @media screen and (orientation: landscape) and (max-height: 720px), screen and (max-width: 1024px) and (orientation: landscape) {
             #hud-container {
                 top: max(8px, env(safe-area-inset-top));
                 left: max(12px, env(safe-area-inset-left));
@@ -1501,9 +1536,63 @@ SPRITES.bgScreen.src = 'assets/game_screen.jpg';
  * 3. 2D 物理系统与关卡
  * =========================================================================
  */
-const CANVAS_W = 960;
-const CANVAS_H = 540;
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+
+const BASE_CANVAS_H = 540;
+let CANVAS_H = BASE_CANVAS_H;
+let CANVAS_W = 960;
 const TILE_SIZE = 40;
+
+/**
+ * 现代街机级动态无黑边正交视口算法 (Dynamic Fullscreen Adaptive Viewport)
+ * 1. 严格锁定垂直基准高度为 540px，确保物理跳跃弧线、地面、平台与踩怪手感 100% 毫无改变
+ * 2. 动态依据玩家手机屏幕长宽比 (16:9 ~ 21:9) 扩展水平视口宽度 CANVAS_W，画面 100% 铺满整屏
+ * 3. 画布宽高比与物理视口 1:1 绝对对齐，彻底消除变形拉伸 (零失真) 与居中黑边 (零黑边)
+ */
+function resizeGameView() {
+    const isLandscape = window.innerWidth > window.innerHeight;
+    const isMobileDevice = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) || window.matchMedia("(max-width: 1024px)").matches;
+    const isFullscreen = !!document.fullscreenElement || !!document.webkitFullscreenElement;
+
+    if ((isLandscape && isMobileDevice) || isFullscreen) {
+        const screenW = window.innerWidth;
+        const screenH = window.innerHeight;
+        const aspect = Math.max(1.333, screenW / Math.max(1, screenH));
+
+        CANVAS_H = BASE_CANVAS_H;
+        CANVAS_W = Math.round(BASE_CANVAS_H * aspect);
+
+        canvas.width = CANVAS_W;
+        canvas.height = CANVAS_H;
+
+        // 重新设置图像平滑算法，确保手绘高清精灵图极致平滑清晰
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
+    } else {
+        CANVAS_H = BASE_CANVAS_H;
+        CANVAS_W = 960;
+        canvas.width = CANVAS_W;
+        canvas.height = CANVAS_H;
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
+    }
+
+    if (typeof player !== 'undefined' && player) {
+        const targetCamX = player.x - CANVAS_W / 2 + 60;
+        cameraX = Math.max(0, Math.min(MAP_COLS * TILE_SIZE - CANVAS_W, targetCamX));
+    }
+}
+
+window.addEventListener('resize', resizeGameView);
+window.addEventListener('orientationchange', () => {
+    setTimeout(resizeGameView, 100);
+    setTimeout(resizeGameView, 300);
+});
+document.addEventListener('fullscreenchange', resizeGameView);
+document.addEventListener('webkitfullscreenchange', resizeGameView);
+resizeGameView();
+
 
 const CHARACTERS = { BUSTER: 0, PLUCKY: 1, DIZZY: 2, FURRBALL: 3 };
 
@@ -4094,9 +4183,6 @@ function checkOverlap(x1, y1, w1, h1, x2, y2, w2, h2) {
  * 4. 1:1 还原参考画质的 2D 手绘渲染引擎
  * =========================================================================
  */
-const canvas = document.getElementById('gameCanvas');
-const ctx = canvas.getContext('2d');
-
 function render() {
     ctx.save();
     ctx.clearRect(0, 0, CANVAS_W, CANVAS_H);
@@ -4109,12 +4195,16 @@ function render() {
     if (currentStageIndex === 0) {
         // Stage 1: 原野阳光天空
         if (SPRITES.bgScreen.complete) {
-            const bgW = CANVAS_W * 1.5;
+            const bgW = Math.max(CANVAS_W, CANVAS_H * 1.778);
             const bgH = CANVAS_H;
             const bgOffset = -(cameraX * 0.25) % bgW;
-            ctx.drawImage(SPRITES.bgScreen, bgOffset, 0, bgW, bgH);
-            if (bgOffset + bgW < CANVAS_W) {
-                ctx.drawImage(SPRITES.bgScreen, bgOffset + bgW, 0, bgW, bgH);
+            let curX = bgOffset;
+            while (curX < CANVAS_W) {
+                ctx.drawImage(SPRITES.bgScreen, curX, 0, bgW, bgH);
+                curX += bgW;
+            }
+            if (bgOffset > 0) {
+                ctx.drawImage(SPRITES.bgScreen, bgOffset - bgW, 0, bgW, bgH);
             }
         } else {
             ctx.fillStyle = '#60a5fa';
@@ -4129,9 +4219,10 @@ function render() {
         ctx.fillStyle = g;
         ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
 
-        // 远景晶簇剪影
+        // 远景晶簇剪影全景平铺
         ctx.fillStyle = 'rgba(192, 132, 252, 0.12)';
-        for (let i = 0; i < 12; i++) {
+        const crystalCount = Math.ceil(CANVAS_W / 80) + 4;
+        for (let i = 0; i < crystalCount; i++) {
             const bx = (i * 90 - (cameraX * 0.15) % 90 + CANVAS_W) % CANVAS_W;
             ctx.beginPath();
             ctx.moveTo(bx, 0);
@@ -4148,9 +4239,10 @@ function render() {
         ctx.fillStyle = g;
         ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
 
-        // 远景粉白巨型云朵
+        // 远景粉白巨型云朵全景平铺
         ctx.fillStyle = 'rgba(255, 255, 255, 0.45)';
-        for (let i = 0; i < 8; i++) {
+        const cloudCount = Math.ceil(CANVAS_W / 120) + 4;
+        for (let i = 0; i < cloudCount; i++) {
             const cx = (i * 150 - (cameraX * 0.1) % 150 + CANVAS_W) % CANVAS_W;
             const cy = 120 + Math.sin(i * 1.5) * 40;
             ctx.beginPath();
@@ -4168,10 +4260,11 @@ function render() {
         ctx.fillStyle = g;
         ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
 
-        // 闪烁宇宙群星
+        // 闪烁宇宙群星全景平铺
         const t = Date.now() * 0.002;
         ctx.fillStyle = '#ffffff';
-        for (let i = 0; i < 40; i++) {
+        const starCount = Math.ceil(CANVAS_W / 18) + 10;
+        for (let i = 0; i < starCount; i++) {
             const sx = (i * 67 + 31) % CANVAS_W;
             const sy = (i * 43 + 17) % CANVAS_H;
             const alpha = 0.3 + Math.sin(t + i) * 0.3;
